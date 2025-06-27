@@ -12,6 +12,8 @@ dependencies = [
     # Hem learner'a hem de core'a ihtiyacı olacak.
     # learner'ı istemek, core'u da getirecektir.
     "azuraforge-learner @ git+https://github.com/AzuraForge/learner.git@main",
+    #"azuraforge-applications @ git+https://github.com/AzuraForge/applications.git@main",
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     
     # Worker için gerekli paketler
     "celery[redis]",

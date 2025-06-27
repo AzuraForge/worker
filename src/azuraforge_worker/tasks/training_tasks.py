@@ -1,39 +1,45 @@
-# ========== DOSYA: src/azuraforge_worker/tasks/training_tasks.py ==========
+# ========== GÜNCELLENECEK DOSYA: worker/src/azuraforge_worker/tasks/training_tasks.py ==========
 from ..celery_app import celery_app
-import time
+from importlib.metadata import entry_points
+import logging
 
-# Gerçek kütüphanelerimizi import edelim
-from azuraforge_learner import Learner, Sequential, Linear, MSELoss, SGD
+# --- Eklenti Keşfi ---
+def discover_pipelines():
+    """Sisteme kurulmuş tüm AzuraForge pipeline'larını keşfeder."""
+    discovered = {}
+    try:
+        # 'azuraforge.pipelines' giriş noktasını ara
+        eps = entry_points(group='azuraforge.pipelines')
+        for ep in eps:
+            discovered[ep.name] = ep.load() # Sınıfı yükle
+            logging.info(f"Discovered pipeline: '{ep.name}' -> {ep.value}")
+    except Exception as e:
+        logging.error(f"Error discovering pipelines: {e}")
+    return discovered
+
+PIPELINES = discover_pipelines()
 
 @celery_app.task(name="start_training_pipeline")
 def start_training_pipeline(config: dict):
-    """
-    Verilen konfigürasyon ile bir eğitim pipeline'ını çalıştıran Celery görevi.
-    """
-    pipeline_name = config.get("pipeline_name", "unknown")
-    epochs = config.get("training_params", {}).get("epochs", 10)
-    
-    print(f"Worker: Received task for pipeline '{pipeline_name}'. Starting training for {epochs} epochs.")
-    
-    # --- SAHTE EĞİTİM SİMÜLASYONU ---
-    # Gerçekte burada 'applications' reposundan ilgili pipeline'ı yükleyip
-    # learner.fit() metodunu çağıracağız.
-    # Şimdilik, sadece çalıştığını görmek için basit bir döngü yapalım.
-    try:
-        total_steps = epochs
-        for i in range(total_steps):
-            # İlerleme durumunu güncelle (gerçek zamanlı takip için)
-            progress = (i + 1) / total_steps * 100
-            start_training_pipeline.update_state(
-                state='PROGRESS',
-                meta={'current': i + 1, 'total': total_steps, 'status': f'Epoch {i+1}/{total_steps} completed...'}
-            )
-            print(f"Epoch {i+1}/{total_steps}...")
-            time.sleep(1) # Her epoch 1 saniye sürsün
+    pipeline_name = config.get("pipeline_name")
+    if not pipeline_name:
+        raise ValueError("'pipeline_name' is required.")
 
-        result_message = f"Training for '{pipeline_name}' completed successfully."
-        print(f"Worker: {result_message}")
-        return {"status": "SUCCESS", "message": result_message}
+    if pipeline_name not in PIPELINES:
+        raise ValueError(f"Pipeline '{pipeline_name}' not found or installed as a plugin.")
+
+    # Keşfedilen sınıflardan doğru olanı al
+    PipelineClass = PIPELINES[pipeline_name]
+    
+    print(f"Worker: Found pipeline '{pipeline_name}'. Instantiating {PipelineClass.__name__}...")
+    
+    try:
+        pipeline_instance = PipelineClass(config)
+        results = pipeline_instance.run()
+        return {"status": "SUCCESS", "results": results}
     except Exception as e:
-        print(f"Worker: Training failed! Error: {e}")
-        return {"status": "FAILURE", "message": str(e)}
+        error_message = f"Worker: Pipeline '{pipeline_name}' failed! Error: {e}"
+        print(error_message)
+        import traceback
+        traceback.print_exc() # Detaylı hata logu için
+        raise Exception(error_message)
