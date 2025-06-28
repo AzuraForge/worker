@@ -1,4 +1,4 @@
-# ========== DOSYA: worker/pyproject.toml ==========
+# ========== GÜNCELLENECEK DOSYA: worker/pyproject.toml ==========
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -6,18 +6,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "azuraforge-worker"
 version = "0.1.0"
-description = "The Celery worker for processing background tasks for the AzuraForge Platform."
+description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
-    # Hem learner'a hem de core'a ihtiyacı olacak.
-    # learner'ı istemek, core'u da getirecektir.
+    # Worker'ın kendisi doğrudan Learner'a değil, eklentilere ihtiyaç duyar.
+    # Ama eklentilerin çalışması için Learner gerektiğinden, test ortamı için ekleyebiliriz.
     "azuraforge-learner @ git+https://github.com/AzuraForge/learner.git@main",
-    #"azuraforge-applications @ git+https://github.com/AzuraForge/applications.git@main",
+    
+    # Geliştirme ve test sırasında bu eklentinin kurulu olmasını sağlıyoruz.
     "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     
-    # Worker için gerekli paketler
     "celery[redis]",
-    "python-dotenv",
     "pyyaml",
 ]
 
