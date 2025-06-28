@@ -33,7 +33,7 @@ if not AVAILABLE_PIPELINES:
 
 # Worker'ın raporları kaydedeceği yeri belirle (Ortam değişkeninden veya varsayılan)
 # Docker'da bu yol, bir volume ile host makineye bağlanacak.
-REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
+REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "reports"))
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True) # Dizinin var olduğundan emin ol
 
 @celery_app.task(bind=True, name="start_training_pipeline")
