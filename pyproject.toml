@@ -1,4 +1,4 @@
-# ========== GÜNCELLENECEK DOSYA: worker/pyproject.toml ==========
+# ========== DOSYA: worker/pyproject.toml ==========
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
@@ -10,10 +10,10 @@ description = "The Celery worker for the AzuraForge Platform. Discovers and runs
 requires-python = ">=3.8"
 dependencies = [
     # Worker'ın kendisi doğrudan Learner'a değil, eklentilere ihtiyaç duyar.
-    # Ama eklentilerin çalışması için Learner gerektiğinden, test ortamı için ekleyebiliriz.
-    "azuraforge-learner @ git+https://github.com/AzuraForge/learner.git@main",
+    # Eklentiler zaten Learner'a bağımlı olduğu için, pip bunu çözecektir.
     
     # Geliştirme ve test sırasında bu eklentinin kurulu olmasını sağlıyoruz.
+    # Canlı bir ortamda, hangi eklentilerin kurulacağı bir konfigürasyon dosyası ile yönetilir.
     "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     
     "celery[redis]",

@@ -1,35 +1,42 @@
-# ========== DOSYA: worker/src/azuraforge_worker/tasks/training_tasks.py ==========
+# ========== DOSYA: src/azuraforge_worker/tasks/training_tasks.py ==========
+import logging
 from ..celery_app import celery_app
 from importlib.metadata import entry_points
-import logging
 
 # --- Eklenti Keşfi (Worker başladığında bir kez çalışır) ---
 def discover_pipelines():
+    """Sisteme kurulmuş tüm AzuraForge pipeline'larını keşfeder."""
     logging.info("Discovering installed AzuraForge pipeline plugins...")
     discovered = {}
     try:
+        # 'azuraforge.pipelines' grubuna kayıtlı tüm giriş noktalarını bul
         eps = entry_points(group='azuraforge.pipelines')
         for ep in eps:
             logging.info(f"Found plugin: '{ep.name}' -> points to '{ep.value}'")
-            discovered[ep.name] = ep.load() # Sınıfı yükle ve sakla
+            # ep.load(), 'azuraforge_stockapp.pipeline:StockPredictionPipeline' gibi bir string'i
+            # gerçek bir Python sınıfına dönüştürür.
+            discovered[ep.name] = ep.load() 
     except Exception as e:
         logging.error(f"Error discovering pipelines: {e}")
     return discovered
 
-# Worker başladığında pipeline'ları yükle ve bir sözlükte tut
+# Worker ilk başladığında, kurulu tüm eklentileri yükle ve bir sözlükte tut
 AVAILABLE_PIPELINES = discover_pipelines()
-if not AVAILABLE_PIPELINES:
-    logging.warning("No AzuraForge pipelines found! Please install a pipeline plugin, e.g., 'azuraforge-app-stock-predictor'.")
 
+if not AVAILABLE_PIPELINES:
+    logging.warning("No AzuraForge pipelines found! Please install a pipeline plugin.")
 
 @celery_app.task(name="start_training_pipeline")
 def start_training_pipeline(config: dict):
+    """
+    API'dan gelen konfigürasyona göre doğru pipeline eklentisini bulur ve çalıştırır.
+    """
     pipeline_name = config.get("pipeline_name")
     if not pipeline_name:
         raise ValueError("'pipeline_name' is required in the task config.")
 
     if pipeline_name not in AVAILABLE_PIPELINES:
-        raise ValueError(f"Pipeline '{pipeline_name}' is not an installed plugin. Available: {list(AVAILABLE_PIPELINES.keys())}")
+        raise ValueError(f"Pipeline '{pipeline_name}' not found. Installed plugins: {list(AVAILABLE_PIPELINES.keys())}")
 
     # Keşfedilen sınıflardan doğru olanı al
     PipelineClass = AVAILABLE_PIPELINES[pipeline_name]
