@@ -9,7 +9,7 @@ def run_celery_worker():
         sys.executable, "-m", "celery",
         "-A", "azuraforge_worker.celery_app:celery_app", # Celery app nesnesinin tam yolu
         "worker",
-        "--pool=solo", # Windows uyumluluğu
+        "--pool=solo", # Windows uyumluluğu üretim için prefork kullanın
         "--loglevel=INFO"
     ]
     subprocess.run(command)
