@@ -1,4 +1,3 @@
-# ========== DOSYA: src/azuraforge_worker/main.py ==========
 import subprocess
 import sys
 

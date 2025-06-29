@@ -1,4 +1,3 @@
-# ========== DOSYA: worker/src/azuraforge_worker/tasks/training_tasks.py ==========
 import logging
 import os
 import json

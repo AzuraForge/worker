@@ -1,4 +1,3 @@
-# ========== DOSYA: src/azuraforge_worker/celery_app.py ==========
 from celery import Celery
 import os
 
