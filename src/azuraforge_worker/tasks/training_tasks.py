@@ -3,13 +3,13 @@ import os
 import json
 from datetime import datetime
 from importlib.metadata import entry_points
-from celery import current_task
-import time
 import traceback
 
 from ..celery_app import celery_app
 
+# ... (discover_pipelines fonksiyonu aynı kalıyor) ...
 def discover_pipelines():
+    # ... (kod aynı)
     logging.info("Worker: Discovering installed AzuraForge pipeline plugins and configurations...")
     discovered = {}
     try:
@@ -36,7 +36,7 @@ def discover_pipelines():
 
 AVAILABLE_PIPELINES_AND_CONFIGS = discover_pipelines()
 if not AVAILABLE_PIPELINES_AND_CONFIGS:
-    logging.warning("Worker: No AzuraForge pipelines found! Please install a pipeline plugin, e.g., 'azuraforge-app-stock-predictor'.")
+    logging.warning("Worker: No AzuraForge pipelines found!")
 
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
@@ -48,56 +48,48 @@ def start_training_pipeline(self, config: dict):
     if not pipeline_name or pipeline_name not in AVAILABLE_PIPELINES_AND_CONFIGS:
         raise ValueError(f"Pipeline '{pipeline_name}' not found or installed.")
 
-    PipelineInfo = AVAILABLE_PIPELINES_AND_CONFIGS[pipeline_name]
-    PipelineClass = PipelineInfo['pipeline_class']
+    PipelineClass = AVAILABLE_PIPELINES_AND_CONFIGS[pipeline_name]['pipeline_class']
 
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_id = f"{pipeline_name}_{run_timestamp}_{self.request.id}" 
+    task_id = self.request.id
+    experiment_id = f"{pipeline_name}_{run_timestamp}_{task_id}" 
     
-    pipeline_specific_report_dir = os.path.join(REPORTS_BASE_DIR, pipeline_name)
-    os.makedirs(pipeline_specific_report_dir, exist_ok=True)
-    experiment_dir = os.path.join(pipeline_specific_report_dir, experiment_id)
+    experiment_dir = os.path.join(REPORTS_BASE_DIR, pipeline_name, experiment_id)
     os.makedirs(experiment_dir, exist_ok=True)
     
     config['experiment_id'] = experiment_id
-    config['task_id'] = self.request.id
+    config['task_id'] = task_id
     config['experiment_dir'] = experiment_dir
     config['start_time'] = datetime.now().isoformat()
 
     logging.info(f"Worker: Instantiating pipeline '{PipelineClass.__name__}' for experiment {experiment_id}")
     
-    initial_report_data = {
-        "task_id": self.request.id, "experiment_id": experiment_id, "status": "STARTED", "config": config, "results": {}
-    }
-    # DÜZELTME: JSON uyumluluğu için default=str eklendi
+    # Başlangıç raporunu yaz
+    initial_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "STARTED", "config": config, "results": {}}
     with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
         json.dump(initial_report_data, f, indent=4, default=str)
 
     try:
-        pipeline_instance = PipelineClass(config, celery_task=self)
-        results = pipeline_instance.run() 
+        # DÜZELTME: Pipeline'a artık Celery task objesi yerine sadece task_id'yi iletiyoruz.
+        pipeline_instance = PipelineClass(config, task_id=task_id)
+        results = pipeline_instance.run()
 
-        final_report_data = {
-            "task_id": self.request.id, "experiment_id": experiment_id, "status": "SUCCESS", "config": config, "results": results, "completed_at": datetime.now().isoformat()
-        }
-        # DÜZELTME: JSON uyumluluğu için default=str eklendi
+        final_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "SUCCESS", "config": config, "results": results, "completed_at": datetime.now().isoformat()}
         with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
             json.dump(final_report_data, f, indent=4, default=str)
             
-        logging.info(f"Worker: Task {self.request.id} for pipeline '{pipeline_name}' completed successfully. Results in {experiment_dir}")
+        logging.info(f"Worker: Task {task_id} completed successfully.")
         return final_report_data
 
     except Exception as e:
+        # Hata yönetimi aynı kalıyor...
         error_traceback = traceback.format_exc()
         error_message = f"Pipeline execution failed for {pipeline_name}: {e}\n{error_traceback}"
         logging.error(error_message)
         
         self.update_state(state='FAILURE', meta={'error_message': str(e), 'traceback': error_traceback})
         
-        error_report_data = {
-            "task_id": self.request.id, "experiment_id": experiment_id, "status": "FAILURE", "config": config, "error": error_message, "failed_at": datetime.now().isoformat()
-        }
-        # DÜZELTME: JSON uyumluluğu için default=str eklendi
+        error_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "FAILURE", "config": config, "error": error_message, "failed_at": datetime.now().isoformat()}
         with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
             json.dump(error_report_data, f, indent=4, default=str)
             
