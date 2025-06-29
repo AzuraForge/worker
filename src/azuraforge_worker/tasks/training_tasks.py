@@ -1,3 +1,5 @@
+# worker/src/azuraforge_worker/tasks/training_tasks.py
+
 import logging
 import os
 import json
@@ -6,10 +8,13 @@ from importlib.metadata import entry_points
 import traceback
 
 from ..celery_app import celery_app
+from ..callbacks import RedisProgressCallback # YENİ: Callback'i import et
 
-# ... (discover_pipelines fonksiyonu aynı kalıyor) ...
 def discover_pipelines():
-    # ... (kod aynı)
+    """
+    Sisteme kurulmuş tüm AzuraForge pipeline'larını ve varsa varsayılan konfigürasyon
+    fonksiyonlarını keşfeder.
+    """
     logging.info("Worker: Discovering installed AzuraForge pipeline plugins and configurations...")
     discovered = {}
     try:
@@ -36,7 +41,7 @@ def discover_pipelines():
 
 AVAILABLE_PIPELINES_AND_CONFIGS = discover_pipelines()
 if not AVAILABLE_PIPELINES_AND_CONFIGS:
-    logging.warning("Worker: No AzuraForge pipelines found!")
+    logging.warning("Worker: No AzuraForge pipelines found! Please install a pipeline plugin, e.g., 'azuraforge-app-stock-predictor'.")
 
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
@@ -64,15 +69,18 @@ def start_training_pipeline(self, config: dict):
 
     logging.info(f"Worker: Instantiating pipeline '{PipelineClass.__name__}' for experiment {experiment_id}")
     
-    # Başlangıç raporunu yaz
     initial_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "STARTED", "config": config, "results": {}}
     with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
         json.dump(initial_report_data, f, indent=4, default=str)
 
     try:
-        # DÜZELTME: Pipeline'a artık Celery task objesi yerine sadece task_id'yi iletiyoruz.
-        pipeline_instance = PipelineClass(config, task_id=task_id)
-        results = pipeline_instance.run()
+        pipeline_instance = PipelineClass(config)
+        
+        # YENİ: Raporlama için Redis callback'ini oluştur.
+        redis_callback = RedisProgressCallback(task_id=task_id)
+        
+        # Pipeline'ın run metoduna callback'i parametre olarak geçir.
+        results = pipeline_instance.run(callbacks=[redis_callback])
 
         final_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "SUCCESS", "config": config, "results": results, "completed_at": datetime.now().isoformat()}
         with open(os.path.join(experiment_dir, "results.json"), 'w') as f:
@@ -82,7 +90,6 @@ def start_training_pipeline(self, config: dict):
         return final_report_data
 
     except Exception as e:
-        # Hata yönetimi aynı kalıyor...
         error_traceback = traceback.format_exc()
         error_message = f"Pipeline execution failed for {pipeline_name}: {e}\n{error_traceback}"
         logging.error(error_message)
