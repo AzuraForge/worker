@@ -21,7 +21,7 @@ COPY . .
 
 # Adım 5: CuPy ve diğer proje bağımlılıklarını kur
 RUN pip install --no-cache-dir cupy-cuda12x
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir -e .
 
-# Adım 6: Konteyner başlatıldığında çalıştırılacak komut (en sağlam yöntem)
-CMD ["python", "-m", "azuraforge_worker.main"]
+# Adım 6: Konteyner başlatıldığında çalıştırılacak komut
+CMD ["start-worker"]
