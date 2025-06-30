@@ -1,23 +1,33 @@
-# Base image olarak Python 3.10'un slim versiyonunu kullan
-FROM python:3.10-slim-bullseye
+# Adım 1: NVIDIA'nın resmi CUDA imajını temel al.
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# Gerekli sistem paketlerini kur (Git, pip'in Git repolarından kurulum yapması için gerekli)
+# Apt'nin interaktif olmasını engelle
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Adım 2: Gerekli sistem paketlerini kur (build-essential, cmake vb. CuPy için gerekebilir)
 RUN apt-get update && \
-    apt-get install -y git --no-install-recommends && \
+    apt-get install -y --no-install-recommends \
+    python3.10 python3-pip git build-essential cmake && \
     rm -rf /var/lib/apt/lists/*
 
-# Çalışma dizinini ayarla
+# python -> python3.10 için bir sembolik link oluştur
+RUN ln -s /usr/bin/python3.10 /usr/bin/python
+
+# Adım 3: Çalışma dizinini ayarla
 WORKDIR /app
 
-# Önce sadece bağımlılık dosyalarını kopyala (Docker katman cache'ini optimize etmek için)
+# Adım 4: Önce sadece bağımlılık tanımlama dosyalarını kopyala
 COPY pyproject.toml .
 COPY setup.py .
-# Kaynak kodunu kopyala
-COPY src ./src
 
-# API'nin tüm bağımlılıklarını kur
+# Adım 5: Bağımlılıkları kur
+# Önce CuPy'yi kur, ardından geri kalanını kur. Bu, çakışmaları önleyebilir.
+RUN pip install --no-cache-dir cupy-cuda12x
+# Ardından projenin kendisini ve diğer bağımlılıklarını kur
 RUN pip install --no-cache-dir .
 
-# === DEĞİŞİKLİK BURADA ===
-CMD ["python", "-m", "azuraforge_api.main"]
-# === DEĞİŞİKLİK SONU ===
+# Adım 6: Kaynak kodunu kopyala
+COPY src ./src
+
+# Adım 7: Konteyner başlatıldığında çalıştırılacak komut
+CMD ["python", "-m", "azuraforge_worker.main"]
