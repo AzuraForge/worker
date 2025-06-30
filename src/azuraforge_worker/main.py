@@ -5,27 +5,31 @@ import sys
 import platform
 import logging
 import multiprocessing
+import os # os'i import et
 
 def determine_pool_and_concurrency():
-    """İşletim sistemine göre uygun pool ve concurrency değerini belirler."""
+    """İşletim sistemine ve cihaz türüne göre uygun pool ve concurrency değerini belirler."""
     current_platform = platform.system()
+    device = os.environ.get("AZURAFORGE_DEVICE", "cpu").lower()
 
-    # === DEĞİŞİKLİK BURADA: Orijinal mantığa geri dönüyoruz ===
     if current_platform == "Windows":
-        # Windows 'prefork'u desteklemez, 'solo' veya 'gevent' kullanılmalıdır.
-        # Yerel Windows geliştirmesi için 'solo' en güvenlisidir.
         pool_type = "solo"
         concurrency = 1
         logging.info("Windows platformu algılandı. 'solo' pool kullanılıyor.")
-    else:
-        # Linux ve macOS için 'prefork' varsayılan ve en verimli seçenektir.
+    elif device == "gpu":
+        # === DEĞİŞİKLİK BURADA: GPU için özel concurrency ayarı ===
         pool_type = "prefork"
-        # Mevcut CPU çekirdeği sayısı kadar paralel işçi çalıştır.
+        # Tek bir GPU varken, çok fazla paralel süreç başlatmak verimsizdir ve OOM'a yol açabilir.
+        # 2 veya 4 gibi küçük bir değerle başlayalım.
+        concurrency = 4 
+        logging.info(f"GPU modu aktif. 'prefork' pool ve {concurrency} (sabit) concurrency kullanılıyor.")
+        # === DEĞİŞİKLİK SONU ===
+    else: # CPU-bound Linux
+        pool_type = "prefork"
         concurrency = multiprocessing.cpu_count()
-        logging.info(f"Linux/macOS platformu algılandı. 'prefork' pool ve {concurrency} concurrency kullanılıyor.")
+        logging.info(f"CPU-bound Linux/macOS platformu algılandı. 'prefork' pool ve {concurrency} concurrency kullanılıyor.")
     
     return pool_type, concurrency
-    # === DEĞİŞİKLİK SONU ===
 
 
 def run_celery_worker():
