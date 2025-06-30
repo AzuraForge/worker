@@ -1,65 +1,48 @@
 # worker/src/azuraforge_worker/main.py
 
-import subprocess
+import logging
 import sys
 import platform
-import logging
 import multiprocessing
-import os # os'i import et
+import os
 
-def determine_pool_and_concurrency():
-    """İşletim sistemine ve cihaz türüne göre uygun pool ve concurrency değerini belirler."""
-    current_platform = platform.system()
+from .celery_app import celery_app
+
+def get_concurrency():
+    """Cihaz türüne göre uygun concurrency değerini belirler."""
     device = os.environ.get("AZURAFORGE_DEVICE", "cpu").lower()
-
-    if current_platform == "Windows":
-        pool_type = "solo"
-        concurrency = 1
-        logging.info("Windows platformu algılandı. 'solo' pool kullanılıyor.")
-    elif device == "gpu":
-        # === DEĞİŞİKLİK BURADA: GPU için özel concurrency ayarı ===
-        pool_type = "prefork"
-        # Tek bir GPU varken, çok fazla paralel süreç başlatmak verimsizdir ve OOM'a yol açabilir.
-        # 2 veya 4 gibi küçük bir değerle başlayalım.
-        concurrency = 4 
-        logging.info(f"GPU modu aktif. 'prefork' pool ve {concurrency} (sabit) concurrency kullanılıyor.")
-        # === DEĞİŞİKLİK SONU ===
-    else: # CPU-bound Linux
-        pool_type = "prefork"
+    if device == "gpu":
+        # Tek bir GPU varken, çok fazla paralel süreç başlatmak verimsizdir.
+        concurrency = 4
+        logging.info(f"GPU modu aktif. Concurrency = {concurrency} (sabit).")
+        return concurrency
+    else:
         concurrency = multiprocessing.cpu_count()
-        logging.info(f"CPU-bound Linux/macOS platformu algılandı. 'prefork' pool ve {concurrency} concurrency kullanılıyor.")
-    
-    return pool_type, concurrency
+        logging.info(f"CPU modu aktif. Concurrency = {concurrency} (CPU çekirdek sayısı).")
+        return concurrency
 
-
-def run_celery_worker():
-    """'start-worker' komutu için giriş noktası."""
-
+def run_azuraforge_worker():
+    """
+    Bu fonksiyon, worker'ı programatik olarak, subprocess kullanmadan başlatır.
+    """
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s:%(lineno)d - %(levelname)s - %(message)s',
         stream=sys.stdout
     )
-
-    logging.info("👷‍♂️ Starting AzuraForge Worker...")
-
-    pool_type, concurrency = determine_pool_and_concurrency()
-
-    logging.info(f"Platform: {platform.system()} - Using pool: {pool_type}, concurrency: {concurrency}")
-
-    command = [
-        # python -m celery ... yerine doğrudan celery komutunu kullanmak daha standarttır
-        # ve PATH sorunları artık Dockerfile'da çözüldü.
-        "celery",
-        "-A", "azuraforge_worker.celery_app:celery_app",
-        "worker",
-        f"--pool={pool_type}",
-        "--loglevel=INFO",
-        f"--concurrency={concurrency}"
+    logging.info("👷‍♂️ Starting AzuraForge Worker via Celery's programmatic API...")
+    
+    # Celery worker'ını başlatmak için argüman listesi oluştur
+    worker_argv = [
+        'worker',
+        '--loglevel=info',
+        # 'prefork' Linux'ta varsayılan olduğu için belirtmeye gerek yok.
+        # 'solo' da hata ayıklama modundan kaldırıldı.
+        f'--concurrency={get_concurrency()}',
     ]
-
-    subprocess.run(command)
-
+    
+    # Celery uygulamasının worker_main metodunu bu argümanlarla çağır
+    celery_app.worker_main(argv=worker_argv)
 
 if __name__ == "__main__":
-    run_celery_worker()
+    run_azuraforge_worker()
