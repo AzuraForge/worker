@@ -8,13 +8,7 @@ version = "0.1.0"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
-    # Worker'ın kendisi doğrudan Learner'a değil, eklentilere ihtiyaç duyar.
-    # Eklentiler zaten Learner'a bağımlı olduğu için, pip bunu çözecektir.
-    
-    # Geliştirme ve test sırasında bu eklentinin kurulu olmasını sağlıyoruz.
-    # Canlı bir ortamda, hangi eklentilerin kurulacağı bir konfigürasyon dosyası ile yönetilir.
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
-    
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.0", # <-- DEĞİŞTİ
     "celery[redis]",
     "pyyaml",
 ]
