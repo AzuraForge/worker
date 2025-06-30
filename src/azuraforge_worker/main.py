@@ -10,21 +10,22 @@ def determine_pool_and_concurrency():
     """İşletim sistemine göre uygun pool ve concurrency değerini belirler."""
     current_platform = platform.system()
 
-    # --- HATA AYIKLAMA İÇİN GEÇİCİ DEĞİŞİKLİK ---
-    # Sorunun 'prefork' ile ilgili olup olmadığını anlamak için,
-    # geçici olarak her zaman 'solo' kullanmaya zorluyoruz.
-    logging.warning("!!! HATA AYIKLAMA MODU: Worker 'solo' pool ile çalışmaya zorlanıyor. !!!")
-    return "solo", 1
-    # ---------------------------------------------
-
-    # Orjinal kod:
-    # if current_platform == "Windows":
-    #     pool_type = "solo"
-    #     concurrency = 1
-    # else:
-    #     pool_type = "prefork"
-    #     concurrency = multiprocessing.cpu_count()
-    # return pool_type, concurrency
+    # === DEĞİŞİKLİK BURADA: Orijinal mantığa geri dönüyoruz ===
+    if current_platform == "Windows":
+        # Windows 'prefork'u desteklemez, 'solo' veya 'gevent' kullanılmalıdır.
+        # Yerel Windows geliştirmesi için 'solo' en güvenlisidir.
+        pool_type = "solo"
+        concurrency = 1
+        logging.info("Windows platformu algılandı. 'solo' pool kullanılıyor.")
+    else:
+        # Linux ve macOS için 'prefork' varsayılan ve en verimli seçenektir.
+        pool_type = "prefork"
+        # Mevcut CPU çekirdeği sayısı kadar paralel işçi çalıştır.
+        concurrency = multiprocessing.cpu_count()
+        logging.info(f"Linux/macOS platformu algılandı. 'prefork' pool ve {concurrency} concurrency kullanılıyor.")
+    
+    return pool_type, concurrency
+    # === DEĞİŞİKLİK SONU ===
 
 
 def run_celery_worker():
@@ -43,7 +44,9 @@ def run_celery_worker():
     logging.info(f"Platform: {platform.system()} - Using pool: {pool_type}, concurrency: {concurrency}")
 
     command = [
-        sys.executable, "-m", "celery",
+        # python -m celery ... yerine doğrudan celery komutunu kullanmak daha standarttır
+        # ve PATH sorunları artık Dockerfile'da çözüldü.
+        "celery",
         "-A", "azuraforge_worker.celery_app:celery_app",
         "worker",
         f"--pool={pool_type}",
