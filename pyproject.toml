@@ -4,13 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.1.0"
+# Versiyonu artırıyoruz çünkü önemli bir özellik ekliyoruz
+version = "0.2.0"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.0", # <-- DEĞİŞTİ
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.0",
     "celery[redis]",
     "pyyaml",
+    # YENİ VERİTABANI BAĞIMLILIKLARI
+    "SQLAlchemy",
+    "psycopg2-binary", # PostgreSQL sürücüsü
 ]
 
 [project.scripts]
