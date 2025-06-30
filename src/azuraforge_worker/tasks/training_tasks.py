@@ -9,12 +9,14 @@ from contextlib import contextmanager
 
 from ..celery_app import celery_app
 from ..callbacks import RedisProgressCallback
-from ..database import SessionLocal, Experiment # YENİ: Veritabanı modelini ve oturumunu import et
+from ..database import Experiment, get_session_local # DEĞİŞTİ
 
 # --- Veritabanı Oturum Yönetimi ---
 @contextmanager
 def get_db():
     """Veritabanı oturumu için bir context manager sağlar."""
+    # SessionLocal'ı dinamik olarak al
+    SessionLocal = get_session_local()
     db = SessionLocal()
     try:
         yield db
