@@ -1,23 +1,16 @@
-# Adım 1: NVIDIA'nın resmi CUDA imajını temel al.
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# Base image olarak Python 3.10'un slim versiyonunu kullan
+FROM python:3.10-slim-bullseye
 
-# Apt'nin interaktif olmasını engelle
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Adım 2: Gerekli sistem paketlerini kur
+# Gerekli sistem paketlerini kur
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    python3.10 python3-pip git build-essential cmake && \
+    apt-get install -y git --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
-# python -> python3.10 için bir sembolik link oluştur
-RUN ln -s /usr/bin/python3.10 /usr/bin/python
-
-# Adım 3: Çalışma dizinini ayarla
+# Çalışma dizinini ayarla
 WORKDIR /app
 
 # === BASİT VE GARANTİ YÖNTEM ===
-# Adım 4: Projenin TÜM dosyalarını kopyala
+# Önce projenin TÜM dosyalarını kopyala
 COPY . .
 
 # Adım 5: CuPy ve proje bağımlılıklarını kur

@@ -17,4 +17,4 @@ dependencies = [
 ]
 
 [project.scripts]
-start-worker = "azuraforge_worker.main:run_celery_worker"
+start-worker = "azuraforge_worker.main:run_azuraforge_worker"
