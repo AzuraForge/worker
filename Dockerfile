@@ -16,15 +16,14 @@ RUN ln -s /usr/bin/python3.10 /usr/bin/python
 # Adım 3: Çalışma dizinini ayarla
 WORKDIR /app
 
-# === DEĞİŞİKLİK BURADA: Sıralamayı garanti altına alıyoruz ===
-
 # Adım 4: Önce SADECE bağımlılık dosyalarını kopyala
 COPY pyproject.toml .
 COPY setup.py .
 
 # Adım 5: SADECE dış bağımlılıkları kur
-# Bu, 'pip install .' komutunun gerektirdiği tüm paketleri önceden kurar.
-RUN pip install --no-cache-dir -r <(grep -E '^[a-zA-Z]' pyproject.toml | sed -e 's/\[.*\]//' -e "s/ //g" -e "s/==.*//")
+# === DEĞİŞİKLİK BURADA: sh uyumlu komut kullanılıyor ===
+RUN grep -E '^[a-zA-Z]' pyproject.toml | sed -e 's/\[.*\]//' -e 's/ //g' -e 's/"//g' -e 's/,//g' | xargs -r pip install --no-cache-dir
+# === DEĞİŞİKLİK SONU ===
 
 # Adım 6: CuPy'yi ayrıca kur
 RUN pip install --no-cache-dir cupy-cuda12x
@@ -33,10 +32,7 @@ RUN pip install --no-cache-dir cupy-cuda12x
 COPY src ./src
 
 # Adım 8: Son olarak projenin kendisini "düzenlenebilir" modda kur
-# Bu, `start-worker` gibi scriptlerin PATH'e eklenmesini sağlar.
 RUN pip install --no-cache-dir -e .
-
-# === DEĞİŞİKLİK SONU ===
 
 # Adım 9: Konteyner başlatıldığında çalıştırılacak komut
 CMD ["start-worker"]
