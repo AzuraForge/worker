@@ -1,16 +1,23 @@
-# ========== GÜNCELLENECEK DOSYA: worker/Dockerfile ==========
+# Base image olarak Python 3.10'un slim versiyonunu kullan
 FROM python:3.10-slim-bullseye
 
-RUN apt-get update && apt-get install -y git --no-install-recommends && rm -rf /var/lib/apt/lists/*
+# Gerekli sistem paketlerini kur (Git, pip'in Git repolarından kurulum yapması için gerekli)
+RUN apt-get update && \
+    apt-get install -y git --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
 
+# Çalışma dizinini ayarla
 WORKDIR /app
 
+# Önce sadece bağımlılık dosyalarını kopyala (Docker katman cache'ini optimize etmek için)
 COPY pyproject.toml .
 COPY setup.py .
-# --- KRİTİK DÜZELTME: src klasörünü pip install'dan ÖNCE kopyala ---
-COPY src ./src 
+# Kaynak kodunu kopyala
+COPY src ./src
 
-# Worker'ın tüm bağımlılıklarını kur
+# API'nin tüm bağımlılıklarını kur
 RUN pip install --no-cache-dir .
 
-CMD ["start-worker"]
+# === DEĞİŞİKLİK BURADA ===
+CMD ["python", "-m", "azuraforge_api.main"]
+# === DEĞİŞİKLİK SONU ===
