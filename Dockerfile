@@ -23,5 +23,7 @@ COPY . .
 RUN pip install --no-cache-dir cupy-cuda12x
 RUN pip install --no-cache-dir -e .
 
-# Adım 6: Konteyner başlatıldığında çalıştırılacak komut
-CMD ["start-worker"]
+# === NİHAİ DEĞİŞİKLİK BURADA ===
+# Projenin ana giriş modülünü doğrudan Python ile çalıştırıyoruz.
+CMD ["python", "-m", "azuraforge_worker.main"]
+# === DEĞİŞİKLİK SONU ===
