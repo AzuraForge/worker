@@ -16,14 +16,12 @@ RUN ln -s /usr/bin/python3.10 /usr/bin/python
 # Adım 3: Çalışma dizinini ayarla
 WORKDIR /app
 
-# === BASİTLEŞTİRİLMİŞ YAPI ===
-# Önce projenin TÜM dosyalarını kopyala.
+# Adım 4: Projenin TÜM dosyalarını kopyala
 COPY . .
 
-# Şimdi, tüm dosyalar içerideyken, CuPy'yi ve projeyi kur.
+# Adım 5: CuPy ve diğer proje bağımlılıklarını kur
 RUN pip install --no-cache-dir cupy-cuda12x
-RUN pip install --no-cache-dir -e .
-# === BİTTİ ===
+RUN pip install --no-cache-dir .
 
-# Adım 9: Konteyner başlatıldığında çalıştırılacak komut
-CMD ["start-worker"]
+# Adım 6: Konteyner başlatıldığında çalıştırılacak komut (en sağlam yöntem)
+CMD ["python", "-m", "azuraforge_worker.main"]
