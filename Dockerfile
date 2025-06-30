@@ -14,7 +14,7 @@ WORKDIR /app
 COPY . .
 
 # Adım 5: CuPy ve proje bağımlılıklarını kur
-RUN pip install --no-cache-dir cupy-cuda12x
+# RUN pip install --no-cache-dir cupy-cuda12x
 RUN pip install --no-cache-dir -e .
 # === BİTTİ ===
 

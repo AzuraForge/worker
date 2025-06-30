@@ -17,7 +17,7 @@ def get_concurrency():
         logging.info(f"GPU modu aktif. Concurrency = {concurrency} (sabit).")
         return concurrency
     else:
-        concurrency = multiprocessing.cpu_count()
+        concurrency = multiprocessing.cpu_count() / 4
         logging.info(f"CPU modu aktif. Concurrency = {concurrency} (CPU çekirdek sayısı).")
         return concurrency
 
