@@ -8,13 +8,10 @@ from importlib.metadata import entry_points
 import traceback
 
 from ..celery_app import celery_app
-from ..callbacks import RedisProgressCallback # YENİ: Callback'i import et
+from ..callbacks import RedisProgressCallback
 
 def discover_pipelines():
-    """
-    Sisteme kurulmuş tüm AzuraForge pipeline'larını ve varsa varsayılan konfigürasyon
-    fonksiyonlarını keşfeder.
-    """
+    # ... (kod aynı)
     logging.info("Worker: Discovering installed AzuraForge pipeline plugins and configurations...")
     discovered = {}
     try:
@@ -30,18 +27,16 @@ def discover_pipelines():
                 discovered[ep.name]['get_config_func'] = ep.load()
             else:
                 logging.warning(f"Worker: Found config for '{ep.name}' but no corresponding pipeline. Skipping config.")
-                
     except Exception as e:
         logging.error(f"Worker: Error discovering pipelines or configs: {e}", exc_info=True)
     
     for p_id, p_info in discovered.items():
         logging.info(f"Worker: Discovered pipeline '{p_id}' (Config available: {'get_config_func' in p_info})")
-
     return discovered
 
 AVAILABLE_PIPELINES_AND_CONFIGS = discover_pipelines()
 if not AVAILABLE_PIPELINES_AND_CONFIGS:
-    logging.warning("Worker: No AzuraForge pipelines found! Please install a pipeline plugin, e.g., 'azuraforge-app-stock-predictor'.")
+    logging.warning("Worker: No AzuraForge pipelines found!")
 
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
@@ -55,8 +50,8 @@ def start_training_pipeline(self, config: dict):
 
     PipelineClass = AVAILABLE_PIPELINES_AND_CONFIGS[pipeline_name]['pipeline_class']
 
-    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     task_id = self.request.id
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_id = f"{pipeline_name}_{run_timestamp}_{task_id}" 
     
     experiment_dir = os.path.join(REPORTS_BASE_DIR, pipeline_name, experiment_id)
@@ -74,12 +69,15 @@ def start_training_pipeline(self, config: dict):
         json.dump(initial_report_data, f, indent=4, default=str)
 
     try:
+        # Pipeline'ı konfigürasyon ile başlat
         pipeline_instance = PipelineClass(config)
         
-        # YENİ: Raporlama için Redis callback'ini oluştur.
+        # Raporlama için callback'i oluştur
         redis_callback = RedisProgressCallback(task_id=task_id)
         
-        # Pipeline'ın run metoduna callback'i parametre olarak geçir.
+        # Pipeline'ın standart run metodunu çağır ve callback'i parametre olarak geçir.
+        # Bu, BasePipeline'de henüz tam desteklenmiyor, bu yüzden eklenti bunu kendi yönetmeli.
+        # Bu nedenle, eklentinin `run` metodunu `callbacks` alacak şekilde güncelledik.
         results = pipeline_instance.run(callbacks=[redis_callback])
 
         final_report_data = {"task_id": task_id, "experiment_id": experiment_id, "status": "SUCCESS", "config": config, "results": results, "completed_at": datetime.now().isoformat()}
