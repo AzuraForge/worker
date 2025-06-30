@@ -4,7 +4,7 @@ FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 # Apt'nin interaktif olmasını engelle
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Adım 2: Gerekli sistem paketlerini kur (build-essential, cmake vb. CuPy için gerekebilir)
+# Adım 2: Gerekli sistem paketlerini kur
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     python3.10 python3-pip git build-essential cmake && \
@@ -16,18 +16,27 @@ RUN ln -s /usr/bin/python3.10 /usr/bin/python
 # Adım 3: Çalışma dizinini ayarla
 WORKDIR /app
 
-# Adım 4: Önce sadece bağımlılık tanımlama dosyalarını kopyala
+# === DEĞİŞİKLİK BURADA: Sıralamayı garanti altına alıyoruz ===
+
+# Adım 4: Önce SADECE bağımlılık dosyalarını kopyala
 COPY pyproject.toml .
 COPY setup.py .
 
-# Adım 5: Bağımlılıkları kur
-# Önce CuPy'yi kur, ardından geri kalanını kur. Bu, çakışmaları önleyebilir.
-RUN pip install --no-cache-dir cupy-cuda12x
-# Ardından projenin kendisini ve diğer bağımlılıklarını kur
-RUN pip install --no-cache-dir .
+# Adım 5: SADECE dış bağımlılıkları kur
+# Bu, 'pip install .' komutunun gerektirdiği tüm paketleri önceden kurar.
+RUN pip install --no-cache-dir -r <(grep -E '^[a-zA-Z]' pyproject.toml | sed -e 's/\[.*\]//' -e "s/ //g" -e "s/==.*//")
 
-# Adım 6: Kaynak kodunu kopyala
+# Adım 6: CuPy'yi ayrıca kur
+RUN pip install --no-cache-dir cupy-cuda12x
+
+# Adım 7: Şimdi kaynak kodunu kopyala
 COPY src ./src
 
-# Adım 7: Konteyner başlatıldığında çalıştırılacak komut
-CMD ["python", "-m", "azuraforge_worker.main"]
+# Adım 8: Son olarak projenin kendisini "düzenlenebilir" modda kur
+# Bu, `start-worker` gibi scriptlerin PATH'e eklenmesini sağlar.
+RUN pip install --no-cache-dir -e .
+
+# === DEĞİŞİKLİK SONU ===
+
+# Adım 9: Konteyner başlatıldığında çalıştırılacak komut
+CMD ["start-worker"]
