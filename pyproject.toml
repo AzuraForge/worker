@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.2.4"
+version = "0.2.5"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
