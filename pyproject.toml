@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.2.3" # Versiyonu artırıyoruz
+version = "0.2.4" # Versiyonu artırıyoruz
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
     # === DEĞİŞİKLİK BURADA: app-stock-predictor'ın en son versiyonuna işaret ediyor ===
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.2",
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.3",
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",
