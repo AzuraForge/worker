@@ -1,27 +1,26 @@
 # worker/pyproject.toml
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel"] # 'wheel' eklendi
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.2.4" # Bu versiyon otomatik artırılacak
+version = "0.2.4"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.8"
 dependencies = [
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.3", # app-stock-predictor'ın güncel versiyonuna işaret etmeli (burada v0.1.3)
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.3",
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",
     "psycopg2-binary",
-    "python-semantic-release" # YENİ: Otomatik versiyonlama için eklendi
+    "python-semantic-release"
 ]
 
 [project.scripts]
 start-worker = "azuraforge_worker.main:run_azuraforge_worker"
 
-# YENİ: semantic-release yapılandırması
 [tool.semantic_release]
 branch = "main"
 version_variable = "pyproject.toml:project.version"
