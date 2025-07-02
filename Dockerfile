@@ -1,30 +1,31 @@
-# Base image olarak Python 3.10'un slim versiyonunu kullan
-FROM python:3.10-slim-bullseye
+# worker/Dockerfile
 
-# Gerekli sistem paketlerini kur
+# KESİN VE GARANTİ ÇÖZÜM İÇİN: NVIDIA's PyTorch/CUDA/cuDNN/Python içeren resmi imajını kullanın.
+FROM nvcr.io/nvidia/pytorch:23.07-py3
+
+# apt-get sorularını engellemek için
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Sadece git ve curl gibi ek sistem paketleri
 RUN apt-get update && \
-    apt-get install -y git --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get install -y --no-install-recommends git curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    rm -rf /var/cache/apt/archives/*
 
 # Çalışma dizinini ayarla
 WORKDIR /app
 
-# === BASİT VE GARANTİ YÖNTEM ===
-# Önce projenin TÜM dosyalarını kopyala
+# Projenin tüm dosyalarını kopyala (root olarak kopyalıyoruz)
 COPY . .
 
-# Adım 5: CuPy ve proje bağımlılıklarını kur
-# KRİTİK: Lütfen sisteminizdeki NVIDIA CUDA sürümüne uygun CuPy paketini seçin!
-# Sisteminizde yüklü olan CUDA sürümünü (örn: nvidia-smi komutu ile) kontrol edin.
-# Eğer CUDA 12.x kullanıyorsanız:
-RUN pip install --no-cache-dir cupy-cuda12x
-# Eğer CUDA 11.x kullanıyorsanız:
-# RUN pip install --no-cache-dir cupy-cuda11x
-# Emin değilseniz veya test etmek için generic versiyon (bazı durumlarda uyumlu olabilir, bazen tam performans vermeyebilir):
-# RUN pip install --no-cache-dir cupy
+# PYTHONPATH'i ayarlayın ki Python, 'azuraforge_worker' paketini ve kopyalanan kodları bulabilsin.
+# '/app/src' dizini, azuraforge_worker paketinin kök dizinidir.
+ENV PYTHONPATH="/app/src:${PYTHONPATH}"
 
-RUN pip install --no-cache-dir -e .
-# === BİTTİ ===
+# TÜM PİP BAĞIMLILIKLARINI VE WORKER PAKETİNİN KENDİSİNİ requirements.txt'den ROOT OLARAK KUR
+# Bu, tüm 'ModuleNotFoundError' ve diğer pip kurulum sorunlarını çözmelidir.
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
-# Adım 6: Konteyner başlatıldığında çalıştırılacak komut
-CMD ["start-worker"]
+
+# Konteyner başlatıldığında çalıştırılacak komut
+CMD python3 -m azuraforge_worker.main

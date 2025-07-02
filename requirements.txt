@@ -1,0 +1,7 @@
+celery[redis]
+pyyaml
+SQLAlchemy
+psycopg2-binary
+python-semantic-release
+
+git+https://github.com/AzuraForge/app-stock-predictor.git@main
