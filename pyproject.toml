@@ -11,6 +11,7 @@ description = "The Celery worker for the AzuraForge Platform. Discovers and runs
 requires-python = ">=3.10"
 dependencies = [
     "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
+    "azuraforge-app-weather-forecaster @ git+https://github.com/AzuraForge/app-weather-forecaster.git@main",
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",
