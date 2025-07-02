@@ -6,6 +6,7 @@ import traceback
 import json
 from datetime import datetime
 from importlib.metadata import entry_points
+from importlib import resources # <<< Gerekli import
 from contextlib import contextmanager
 import redis
 
@@ -14,22 +15,16 @@ from ..callbacks import RedisProgressCallback
 from ..database import Experiment, get_session_local
 
 # --- Redis ve Pipeline Kaydı ---
-
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
-# Bu global değişken, keşfedilen pipeline sınıflarını bellekte tutacak.
-# Bu, her görevde tekrar tekrar diskten/metadata'dan okuma yapmayı engeller.
 AVAILABLE_PIPELINES = {}
 
 def discover_and_register_pipelines():
     """
-    Yüklü pipeline eklentilerini keşfeder, Redis'e kaydeder ve global
-    AVAILABLE_PIPELINES değişkenini günceller.
+    Yüklü pipeline eklentilerini, konfigürasyonlarını ve UI şemalarını
+    keşfeder, Redis'e kaydeder ve global AVAILABLE_PIPELINES değişkenini günceller.
     """
-    # global anahtar kelimesi, bu fonksiyonun dışarıdaki AVAILABLE_PIPELINES'i
-    # değiştireceğini belirtir.
     global AVAILABLE_PIPELINES
-    
-    logging.info("Worker: Discovering and registering pipelines...")
+    logging.info("Worker: Discovering and registering pipelines using direct JSON schema loading...")
     
     try:
         pipeline_eps = entry_points(group='azuraforge.pipelines')
@@ -39,23 +34,43 @@ def discover_and_register_pipelines():
         config_func_map = {ep.name: ep.load() for ep in config_eps}
 
         catalog_to_register_in_redis = {}
+        logging.info(f"Processing {len(pipeline_class_map)} discovered pipeline classes...")
+
         for name, pipeline_class in pipeline_class_map.items():
+            logging.info(f"  -> Processing pipeline: '{name}'")
+            
+            # 1. Varsayılan konfigürasyonu yükle
             default_config = {}
             if name in config_func_map:
                 try:
                     default_config = config_func_map[name]()
                     if isinstance(default_config, dict) and "error" in default_config:
-                        logging.error(f"Could not load default config for '{name}': {default_config['error']}")
+                        logging.error(f"    - Config load error for '{name}': {default_config['error']}")
                         default_config = {}
                 except Exception as e:
-                    logging.error(f"Error executing get_default_config for pipeline '{name}': {e}")
+                    logging.error(f"    - Exception executing get_default_config for '{name}': {e}", exc_info=True)
+
+            # 2. JSON dosyasından form şemasını yükle (YENİ GÜVENİLİR YÖNTEM)
+            form_schema = {}
+            try:
+                # Eklentinin paket adını bul (örn: 'azuraforge_stockapp')
+                package_name = pipeline_class.__module__.split('.')[0]
+                # importlib.resources ile paketin içindeki dosyayı güvenle oku
+                with resources.open_text(package_name, "form_schema.json") as f:
+                    form_schema = json.load(f)
+                logging.info(f"    - Successfully loaded form_schema.json for '{name}' from package '{package_name}'.")
+            except (ModuleNotFoundError, FileNotFoundError):
+                logging.warning(f"    - NO form_schema.json FOUND for pipeline '{name}' in package '{package_name}'.")
+            except Exception as e:
+                logging.error(f"    - Exception loading form_schema.json for '{name}': {e}", exc_info=True)
             
+            # 3. Tüm bilgileri Redis'e kaydetmek için hazırla
             catalog_to_register_in_redis[name] = json.dumps({
                 "id": name,
-                "default_config": default_config
+                "default_config": default_config,
+                "form_schema": form_schema
             })
         
-        # Global değişkeni yeni keşfedilenlerle güncelle
         AVAILABLE_PIPELINES = pipeline_class_map
 
         if not catalog_to_register_in_redis:
@@ -64,20 +79,16 @@ def discover_and_register_pipelines():
 
         redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
         r = redis.from_url(redis_url)
-
         pipe = r.pipeline()
         pipe.delete(REDIS_PIPELINES_KEY)
-        if catalog_to_register_in_redis:  # Sadece boş değilse ekle
+        if catalog_to_register_in_redis:
             pipe.hmset(REDIS_PIPELINES_KEY, catalog_to_register_in_redis)
         pipe.execute()
         
-        logging.info(f"Worker: Successfully registered {len(catalog_to_register_in_redis)} pipelines to Redis.")
-        for p_id in catalog_to_register_in_redis.keys():
-            logging.info(f"  -> Registered pipeline: '{p_id}'")
+        logging.info(f"Worker: Registration complete. {len(catalog_to_register_in_redis)} pipelines registered to Redis.")
 
     except Exception as e:
         logging.error(f"Worker: CRITICAL ERROR during pipeline discovery/registration: {e}", exc_info=True)
-        # Hata durumunda bile global değişkeni temizle ki eski bilgi kalmasın
         AVAILABLE_PIPELINES = {}
 
 # Worker modülü ilk yüklendiğinde keşfi çalıştır.
@@ -99,36 +110,32 @@ os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
 # --- Celery Görevi ---
 @celery_app.task(bind=True, name="start_training_pipeline")
 def start_training_pipeline(self, config: dict):
-    # DÜZELTME: 'global' bildirimini fonksiyonun en başına taşıyoruz.
     global AVAILABLE_PIPELINES
-
     task_id = self.request.id
     pipeline_name = config.get("pipeline_name", "unknown_pipeline")
+    
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_id = f"{pipeline_name}_{run_timestamp}_{task_id[:8]}"
 
     experiment_dir = os.path.join(REPORTS_BASE_DIR, pipeline_name, experiment_id)
     os.makedirs(experiment_dir, exist_ok=True)
     
-    config['experiment_id'] = experiment_id
-    config['task_id'] = task_id
-    config['experiment_dir'] = experiment_dir
-    config['start_time'] = datetime.now().isoformat()
+    config.update({
+        'experiment_id': experiment_id, 
+        'task_id': task_id, 
+        'experiment_dir': experiment_dir, 
+        'start_time': datetime.now().isoformat()
+    })
 
     try:
-        # Pipeline'ın mevcut olup olmadığını kontrol et.
         if pipeline_name not in AVAILABLE_PIPELINES:
-            # Eğer bellekteki listede yoksa, belki worker başladıktan sonra
-            # yeni bir eklenti kurulmuştur. Tekrar keşfetmeyi dene.
             logging.warning(f"Pipeline '{pipeline_name}' not in memory cache. Retrying discovery...")
             discover_and_register_pipelines()
-            # Tekrar kontrol et.
             if pipeline_name not in AVAILABLE_PIPELINES:
                  raise ValueError(f"Pipeline '{pipeline_name}' not found or installed on this worker after rediscovery.")
 
-        # Pipeline bulundu, devam et.
         PipelineClass = AVAILABLE_PIPELINES[pipeline_name]
-
+        
         with get_db() as db:
             new_experiment = Experiment(
                 id=experiment_id,

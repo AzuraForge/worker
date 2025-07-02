@@ -10,7 +10,11 @@ version = "0.1.1"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.10"
 dependencies = [
-    # Eklentiler buradan kaldırıldı, requirements.txt'ye taşındı.
+    # Eklentiler buraya geri eklendi:
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
+    "azuraforge-app-weather-forecaster @ git+https://github.com/AzuraForge/app-weather-forecaster.git@main",
+    
+    # Diğer temel bağımlılıklar:
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",

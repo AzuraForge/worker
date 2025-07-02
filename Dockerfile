@@ -1,12 +1,13 @@
 # worker/Dockerfile
 
 # NVIDIA'nın resmi PyTorch imajını temel alıyoruz.
+# Bu, CUDA/cuDNN uyumluluğunu garanti eder.
 FROM nvcr.io/nvidia/pytorch:23.07-py3
 
 # APT'nin interaktif sorularını engelle
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Gerekli sistem paketlerini kur (örn: git)
+# Gerekli sistem paketlerini kur (git, pip'in git repolarını klonlaması için)
 RUN apt-get update && \
     apt-get install -y --no-install-recommends git curl && \
     rm -rf /var/lib/apt/lists/*
@@ -14,23 +15,20 @@ RUN apt-get update && \
 # Çalışma dizinini ayarla
 WORKDIR /app
 
-# ÖNCE sadece bağımlılık ve proje tanım dosyalarını kopyala.
-# Docker katman önbelleklemesini (layer caching) optimize eder.
-COPY requirements.txt pyproject.toml setup.py ./
+# === YENİ VE DAHA SAĞLAM KURULUM STRATEJİSİ ===
 
-# === 1. ADIM: DIŞ BAĞIMLILIKLARI KUR ===
-# Önce requirements.txt içindeki tüm dış kütüphaneleri ve eklentileri kur.
-RUN python3 -m pip install --no-cache-dir -r requirements.txt
+# 1. Önce projenin TÜM dosyalarını kopyala.
+# Bu, pyproject.toml, setup.py ve src klasörünü aynı anda içeri alır.
+COPY . .
 
-# === 2. ADIM: PROJENİN KENDİSİNİ KUR ===
-# Şimdi projenin kaynak kodunu kopyala.
-COPY src ./src
-
-# Projenin kendisini "düzenlenebilir" modda kur.
-# Bu komut, 'src/azuraforge_worker' paketini Python'un 'site-packages'
-# dizinine bir link olarak ekler. Bu, 'ModuleNotFoundError' hatasını çözer.
+# 2. Şimdi, tüm dosyalar içerideyken, tek bir komutla her şeyi kur.
+# `pip install -e .` komutu, pyproject.toml'daki `dependencies` listesini okur.
+# Bu liste, Git repolarına işaret ettiği için, pip bu eklentileri klonlar
+# ve kurar. Bu süreçte eklentilerin kendi entry_point'leri de
+# (pipelines, configs VE schemas dahil) doğru bir şekilde kaydedilir.
+# Bu, önceki `requirements.txt` yönteminden daha standart ve güvenilirdir.
 RUN python3 -m pip install --no-cache-dir -e .
 
 # Bu komut, 'docker-compose up' ile çalıştırıldığında worker'ı başlatır.
-# Artık 'azuraforge_worker' modülü Python tarafından bulunabilir.
+# Kurulum doğru yapıldığı için 'azuraforge_worker' modülü bulunacaktır.
 CMD ["python3", "-m", "azuraforge_worker.main"]
