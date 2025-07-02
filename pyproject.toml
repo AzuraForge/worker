@@ -10,7 +10,7 @@ version = "0.1.1"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.10"
 dependencies = [
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.1",
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",
