@@ -14,7 +14,15 @@ WORKDIR /app
 COPY . .
 
 # Adım 5: CuPy ve proje bağımlılıklarını kur
-# RUN pip install --no-cache-dir cupy-cuda12x
+# KRİTİK: Lütfen sisteminizdeki NVIDIA CUDA sürümüne uygun CuPy paketini seçin!
+# Sisteminizde yüklü olan CUDA sürümünü (örn: nvidia-smi komutu ile) kontrol edin.
+# Eğer CUDA 12.x kullanıyorsanız:
+RUN pip install --no-cache-dir cupy-cuda12x
+# Eğer CUDA 11.x kullanıyorsanız:
+# RUN pip install --no-cache-dir cupy-cuda11x
+# Emin değilseniz veya test etmek için generic versiyon (bazı durumlarda uyumlu olabilir, bazen tam performans vermeyebilir):
+# RUN pip install --no-cache-dir cupy
+
 RUN pip install --no-cache-dir -e .
 # === BİTTİ ===
 

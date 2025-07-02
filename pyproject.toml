@@ -6,11 +6,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.1.0"
+version = "0.1.1"
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.10"
 dependencies = [
-    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.0",
+    "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@v0.1.1",
     "celery[redis]",
     "pyyaml",
     "SQLAlchemy",
