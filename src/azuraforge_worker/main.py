@@ -8,17 +8,17 @@ import os
 
 from .celery_app import celery_app
 
-def get_concurrency():
+def get_concurrency() -> int: # <-- Dönüş tipini int olarak güncelledik
     """Cihaz türüne göre uygun concurrency değerini belirler."""
     device = os.environ.get("AZURAFORGE_DEVICE", "cpu").lower()
     if device == "gpu":
-        # Tek bir GPU varken, çok fazla paralel süreç başlatmak verimsizdir.
         concurrency = 4
         logging.info(f"GPU modu aktif. Concurrency = {concurrency} (sabit).")
         return concurrency
     else:
-        concurrency = multiprocessing.cpu_count() / 4
-        logging.info(f"CPU modu aktif. Concurrency = {concurrency} (CPU çekirdek sayısı).")
+        # DÜZELTME: Sonucu tamsayıya çeviriyoruz (//) ve minimum 1 olmasını sağlıyoruz.
+        concurrency = max(1, multiprocessing.cpu_count() // 2)
+        logging.info(f"CPU modu aktif. Concurrency = {concurrency} (CPU çekirdek sayısı / 2).")
         return concurrency
 
 def run_azuraforge_worker():
@@ -36,9 +36,7 @@ def run_azuraforge_worker():
     worker_argv = [
         'worker',
         '--loglevel=info',
-        # 'prefork' Linux'ta varsayılan olduğu için belirtmeye gerek yok.
-        # 'solo' da hata ayıklama modundan kaldırıldı.
-        f'--concurrency={get_concurrency()}',
+        f'--concurrency={get_concurrency()}', # <-- Artık tamsayı gelecek
     ]
     
     # Celery uygulamasının worker_main metodunu bu argümanlarla çağır
