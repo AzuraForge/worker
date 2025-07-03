@@ -87,12 +87,29 @@ def start_training_pipeline(self, config: dict):
         redis_callback = RedisProgressCallback(task_id=task_id)
         results = pipeline_instance.run(callbacks=[redis_callback])
 
+        # --- YENİ BÖLÜM: Model Kaydetme ---
+        model_path = None
+        if pipeline_instance.learner:
+            # Modeli, kendine özel deney dizinine kaydediyoruz.
+            model_filename = "best_model.json"
+            model_path = os.path.join(experiment_dir, model_filename)
+            pipeline_instance.learner.save_model(model_path)
+            logging.info(f"Model for experiment {experiment_id} saved to {model_path}")
+        else:
+            logging.warning(f"Learner instance not found for experiment {experiment_id}. Model not saved.")
+        # --- BİTTİ ---
+
         with get_db() as db:
             exp_to_update = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if exp_to_update:
-                exp_to_update.status = "SUCCESS"; exp_to_update.results = results
-                exp_to_update.completed_at = datetime.now(datetime.utcnow().tzinfo); db.commit()
-        return {"experiment_id": experiment_id, "status": "SUCCESS"}
+                exp_to_update.status = "SUCCESS"
+                exp_to_update.results = results
+                exp_to_update.model_path = model_path # <-- YENİ: Model yolunu DB'ye yaz
+                exp_to_update.completed_at = datetime.now(datetime.utcnow().tzinfo)
+                db.commit()
+        
+        return {"experiment_id": experiment_id, "status": "SUCCESS", "model_path": model_path}
+        
     except Exception as e:
         tb_str = traceback.format_exc()
         error_message = str(e)
