@@ -1,8 +1,6 @@
 # Temel Worker Bağımlılıkları
 celery[redis]
 pyyaml
-SQLAlchemy
-psycopg2-binary
 python-semantic-release
 
 # === AZURAFORGE EKLENTİLERİ ===
@@ -10,3 +8,4 @@ python-semantic-release
 # buraya eklenmelidir.
 git+https://github.com/AzuraForge/app-stock-predictor.git@main
 git+https://github.com/AzuraForge/app-weather-forecaster.git@main
+git+https://github.com/AzuraForge/dbmodels.git@main

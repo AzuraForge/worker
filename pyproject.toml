@@ -1,24 +1,18 @@
-# worker/pyproject.toml
-
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.1.1"
+version = "0.1.2" # Versiyonu artırdık
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.10"
 dependencies = [
-    # Eklentiler buraya geri eklendi:
     "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     "azuraforge-app-weather-forecaster @ git+https://github.com/AzuraForge/app-weather-forecaster.git@main",
-    
-    # Diğer temel bağımlılıklar:
+    "azuraforge-dbmodels @ git+https://github.com/AzuraForge/dbmodels.git@main",
     "celery[redis]",
     "pyyaml",
-    "SQLAlchemy",
-    "psycopg2-binary",
     "python-semantic-release"
 ]
 
