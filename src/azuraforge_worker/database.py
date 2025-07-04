@@ -1,6 +1,7 @@
 # worker/src/azuraforge_worker/database.py
 
 from sqlalchemy.orm import sessionmaker
+import os  # <-- EKSİK OLAN IMPORT EKLENDİ
 
 # Bu global değişken, her süreç için bir kere oluşturulacak Session fabrikasını tutar.
 _SessionLocal = None
