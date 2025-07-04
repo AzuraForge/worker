@@ -1,11 +1,7 @@
 # worker/src/azuraforge_worker/tasks/training_tasks.py
 """
 Bu modül, platformun ana model eğitim görevlerini içerir. Celery tarafından
-keşfedilir ve çalıştırılır. Görevlerin temel sorumlulukları:
-- Gelen konfigürasyonu işlemek.
-- Veritabanına ilk deney kaydını oluşturmak.
-- İlgili AI pipeline'ını bulup çalıştırmak.
-- Deney sonucunu (başarı/hata) veritabanına geri yazmak.
+keşfedilir ve çalıştırılır.
 """
 import logging
 import os
@@ -15,8 +11,7 @@ from datetime import datetime
 from importlib.metadata import entry_points
 from importlib import resources
 from contextlib import contextmanager
-# Gerekli tüm typing import'ları tek bir yerden yapılıyor.
-from typing import Optional, Dict, Any, Tuple 
+from typing import Optional, Dict, Any, Tuple
 
 import redis
 
@@ -34,8 +29,7 @@ REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 def discover_and_register_pipelines():
     """
     Sisteme `entry_points` ile kurulmuş tüm pipeline eklentilerini keşfeder
-    ve Redis'e bir katalog olarak kaydeder. Bu, API'nin hangi pipeline'ların
-    kullanılabilir olduğunu bilmesini sağlar.
+    ve Redis'e bir katalog olarak kaydeder.
     """
     global AVAILABLE_PIPELINES
     logging.info("Worker: Discovering and registering pipelines via entry_points...")
@@ -58,7 +52,6 @@ def discover_and_register_pipelines():
                     logging.error(f"Error loading default config for '{name}': {e}", exc_info=True)
             
             try:
-                # Eklentinin paket adını modül yolundan çıkar
                 package_name = pipeline_class.__module__.split('.')[0]
                 with resources.open_text(package_name, "form_schema.json") as f:
                     form_schema = json.load(f)
@@ -86,7 +79,7 @@ def discover_and_register_pipelines():
         
     except Exception as e:
         logging.error(f"Worker: CRITICAL ERROR during pipeline discovery: {e}", exc_info=True)
-        AVAILABLE_PIPELINES.clear() # Hata durumunda listeyi temizle
+        AVAILABLE_PIPELINES.clear()
 
 # Worker modülü yüklendiğinde bu fonksiyonu hemen çalıştır.
 discover_and_register_pipelines()
@@ -94,7 +87,7 @@ os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
 
 @contextmanager
 def get_db():
-    """Veritabanı session'ı için bir context manager. Session'ı otomatik olarak kapatır."""
+    """Veritabanı session'ı için bir context manager."""
     yield from get_db_session()
 
 def _prepare_and_log_initial_state(task_id: str, user_config: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
@@ -177,8 +170,11 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 
         PipelineClass = AVAILABLE_PIPELINES.get(pipeline_name)
         if not PipelineClass:
-            raise ValueError(f"Pipeline '{pipeline_name}' is not registered or could not be found.")
-        
+            discover_and_register_pipelines()
+            PipelineClass = AVAILABLE_PIPELINES.get(pipeline_name)
+            if not PipelineClass:
+                raise ValueError(f"Pipeline '{pipeline_name}' is not registered or could not be found.")
+
         pipeline_instance = PipelineClass(full_config)
         
         redis_callback = RedisProgressCallback(task_id=self.request.id)
