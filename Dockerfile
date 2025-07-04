@@ -1,4 +1,5 @@
-# NVIDIA'nın resmi PyTorch imajını temel alıyoruz.
+# worker/Dockerfile
+
 FROM nvcr.io/nvidia/pytorch:23.07-py3
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -13,7 +14,6 @@ WORKDIR /app
 COPY ./scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 COPY ./scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
-# === BİTTİ ===
 
 COPY . .
 
@@ -22,5 +22,5 @@ RUN python3 -m pip install --no-cache-dir -e .
 # Konteynerin giriş noktası
 ENTRYPOINT ["entrypoint.sh"]
 
-# Varsayılan komut
+# Varsayılan komut (docker-compose'da override edilecek)
 CMD ["python3", "-m", "azuraforge_worker.main"]
