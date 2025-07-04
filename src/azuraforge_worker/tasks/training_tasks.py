@@ -11,6 +11,8 @@ from datetime import datetime
 from importlib.metadata import entry_points
 from importlib import resources
 from contextlib import contextmanager
+from typing import Optional, Dict # <-- YENİ: Optional ve Dict eklendi
+
 import redis
 
 from ..celery_app import celery_app
@@ -27,8 +29,7 @@ REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 def discover_and_register_pipelines():
     """
     Sisteme `entry_points` ile kurulmuş tüm pipeline eklentilerini keşfeder
-    ve Redis'e bir katalog olarak kaydeder. Bu, API'nin hangi pipeline'ların
-    kullanılabilir olduğunu bilmesini sağlar.
+    ve Redis'e bir katalog olarak kaydeder.
     """
     global AVAILABLE_PIPELINES
     logging.info("Worker: Discovering and registering pipelines via entry_points...")
@@ -44,14 +45,12 @@ def discover_and_register_pipelines():
         for name, pipeline_class in pipeline_class_map.items():
             default_config, form_schema = {}, {}
             
-            # Varsayılan konfigürasyonu yüklemeye çalış
             if name in config_func_map:
                 try:
                     default_config = config_func_map[name]()
                 except Exception as e:
                     logging.error(f"Error loading default config for '{name}': {e}", exc_info=True)
             
-            # Form şemasını yüklemeye çalış
             try:
                 package_name = pipeline_class.__module__.split('.')[0]
                 with resources.open_text(package_name, "form_schema.json") as f:
@@ -74,7 +73,6 @@ def discover_and_register_pipelines():
 
         redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
         r = redis.from_url(redis_url)
-        # Önceki kaydı temizleyip yenisini yazmak daha güvenli
         r.delete(REDIS_PIPELINES_KEY)
         r.hset(REDIS_PIPELINES_KEY, mapping=catalog_to_register)
         logging.info(f"Worker: Registration complete. {len(catalog_to_register)} pipelines registered to Redis.")
@@ -83,17 +81,14 @@ def discover_and_register_pipelines():
         logging.error(f"Worker: CRITICAL ERROR during pipeline discovery: {e}", exc_info=True)
         AVAILABLE_PIPELINES = {}
 
-# Worker modülü yüklendiğinde bu fonksiyonu hemen çalıştır.
 discover_and_register_pipelines()
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
 
 @contextmanager
 def get_db():
-    """Veritabanı session'ı için bir context manager."""
     yield from get_db_session()
 
 def _prepare_and_log_initial_state(task_id: str, user_config: dict) -> dict:
-    """Deney için gerekli ID'leri, dizinleri oluşturur ve veritabanına ilk kaydı atar."""
     pipeline_name = user_config.get("pipeline_name")
     if not pipeline_name:
         raise ValueError("'pipeline_name' must be provided in the configuration.")
@@ -101,7 +96,6 @@ def _prepare_and_log_initial_state(task_id: str, user_config: dict) -> dict:
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     experiment_id = f"{pipeline_name}_{run_timestamp}_{task_id[:8]}"
     
-    # Sistemsel ve pipeline'a özel tüm bilgileri içeren tam konfigürasyon
     full_config = {
         **user_config,
         'experiment_id': experiment_id, 
@@ -128,8 +122,7 @@ def _prepare_and_log_initial_state(task_id: str, user_config: dict) -> dict:
     
     return full_config
 
-def _update_experiment_on_completion(experiment_id: str, results: dict, model_path: Optional[str]):
-    """Deney başarıyla tamamlandığında veritabanını günceller."""
+def _update_experiment_on_completion(experiment_id: str, results: Dict[str, Any], model_path: Optional[str]):
     with get_db() as db:
         exp_to_update = db.query(Experiment).filter(Experiment.id == experiment_id).first()
         if exp_to_update:
@@ -141,13 +134,12 @@ def _update_experiment_on_completion(experiment_id: str, results: dict, model_pa
             logging.info(f"Experiment {experiment_id} updated in DB with status SUCCESS.")
 
 def _update_experiment_on_failure(experiment_id: str, error: Exception):
-    """Deney başarısız olduğunda veritabanını günceller."""
     tb_str = traceback.format_exc()
-    error_message = str(e)
+    error_message = str(error)
     error_code = "PIPELINE_EXECUTION_ERROR"
-    if isinstance(e, (ValueError, TypeError)):
+    if isinstance(error, (ValueError, TypeError)):
         error_code = "PIPELINE_VALUE_ERROR"
-    elif isinstance(e, FileNotFoundError):
+    elif isinstance(error, FileNotFoundError):
         error_code = "PIPELINE_FILE_NOT_FOUND"
     
     logging.error(f"PIPELINE CRITICAL FAILURE: ({error_code}) {error_message}\n{tb_str}")
@@ -163,28 +155,21 @@ def _update_experiment_on_failure(experiment_id: str, error: Exception):
 
 @celery_app.task(bind=True, name="start_training_pipeline")
 def start_training_pipeline(self, user_config: dict):
-    """
-    API'den gelen ana Celery görevi. Bir pipeline'ı uçtan uca çalıştırır.
-    """
     full_config = None
     try:
-        # 1. Konfigürasyonları hazırla ve veritabanına ilk kaydı at.
         full_config = _prepare_and_log_initial_state(self.request.id, user_config)
         experiment_id = full_config['experiment_id']
         pipeline_name = full_config['pipeline_name']
 
-        # 2. Doğru Pipeline sınıfını bul ve örneğini oluştur.
         PipelineClass = AVAILABLE_PIPELINES.get(pipeline_name)
         if not PipelineClass:
             raise ValueError(f"Pipeline '{pipeline_name}' is not registered or could not be found.")
         
         pipeline_instance = PipelineClass(full_config)
         
-        # 3. Pipeline'ı çalıştır.
         redis_callback = RedisProgressCallback(task_id=self.request.id)
         results = pipeline_instance.run(callbacks=[redis_callback])
 
-        # 4. Model varsa kaydet.
         model_path = None
         if hasattr(pipeline_instance, 'learner') and pipeline_instance.learner:
             model_filename = "best_model.json"
@@ -192,16 +177,13 @@ def start_training_pipeline(self, user_config: dict):
             pipeline_instance.learner.save_model(model_path)
             logging.info(f"Model for experiment {experiment_id} saved to {model_path}")
 
-        # 5. Başarılı sonuçları veritabanına yaz.
         _update_experiment_on_completion(experiment_id, results, model_path)
         
         return {"experiment_id": experiment_id, "status": "SUCCESS", "model_path": model_path}
         
     except Exception as e:
-        # Hata durumunda, veritabanını güncelle ve hatayı yeniden fırlat ki Celery görevi "FAILURE" olarak işaretlensin.
         if full_config and 'experiment_id' in full_config:
             _update_experiment_on_failure(full_config['experiment_id'], e)
         else:
-            # Bu durum, _prepare_and_log_initial_state içinde hata olursa gerçekleşir.
             logging.error(f"CRITICAL: Could not log failure to DB for task {self.request.id} as experiment_id was not generated. Original error: {e}", exc_info=True)
         raise e
