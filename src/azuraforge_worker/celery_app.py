@@ -1,3 +1,5 @@
+# worker/src/azuraforge_worker/celery_app.py
+
 import os
 from celery import Celery
 from celery.signals import worker_process_init, worker_process_shutdown
@@ -16,22 +18,26 @@ engine = None
 
 @worker_process_init.connect
 def init_worker_db_connection(**kwargs):
-    """Her bir Celery alt süreci başladığında çağrılır."""
+    """
+    Her bir Celery alt süreci (worker process) başladığında çağrılır.
+    Bu, her sürece kendi veritabanı bağlantı havuzunu oluşturma imkanı tanır.
+    """
     global engine
-    print("Initializing DB connection for worker process...")
-    from azuraforge_dbmodels import sa_create_engine
+    print(f"WORKER: Initializing DB connection for worker process PID: {os.getpid()}")
     
-    db_url = os.getenv("DATABASE_URL")
-    if not db_url:
-        raise RuntimeError("DATABASE_URL not set, cannot initialize DB engine.")
+    # dbmodels kütüphanesinden veritabanı URL'ini ve motor oluşturucuyu al
+    from azuraforge_dbmodels.database import DATABASE_URL, sa_create_engine
+    
+    if not DATABASE_URL:
+        raise RuntimeError("DATABASE_URL could not be determined. Worker cannot start.")
         
-    engine = sa_create_engine(db_url)
-    print(f"DB connection for worker process {os.getpid()} initialized.")
+    engine = sa_create_engine(DATABASE_URL)
+    print(f"WORKER: DB connection for process {os.getpid()} initialized successfully.")
 
 @worker_process_shutdown.connect
 def shutdown_worker_db_connection(**kwargs):
     """Her bir Celery alt süreci kapandığında çağrılır."""
     global engine
     if engine:
-        print(f"Disposing DB connection for worker process {os.getpid()}...")
+        print(f"WORKER: Disposing DB connection for worker process PID: {os.getpid()}...")
         engine.dispose()

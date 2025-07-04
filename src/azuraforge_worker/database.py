@@ -1,50 +1,32 @@
 # worker/src/azuraforge_worker/database.py
 
-import os
-from sqlalchemy import create_engine as sa_create_engine, Column, String, JSON, DateTime
-from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.sql import func
+from sqlalchemy.orm import sessionmaker
 
-Base = declarative_base()
-
-class Experiment(Base):
-    __tablename__ = "experiments"
-    id = Column(String, primary_key=True, index=True)
-    task_id = Column(String, index=True, nullable=False)
-    batch_id = Column(String, index=True, nullable=True)
-    batch_name = Column(String, nullable=True)
-    pipeline_name = Column(String, index=True, nullable=False)
-    status = Column(String, index=True, default="PENDING")
-    config = Column(JSON, nullable=True)
-    results = Column(JSON, nullable=True)
-    error = Column(JSON, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    completed_at = Column(DateTime(timezone=True), nullable=True)
-    failed_at = Column(DateTime(timezone=True), nullable=True)
-
-    def __repr__(self):
-        return f"<Experiment(id='{self.id}', status='{self.status}')>"
-
+# Bu global değişken, her süreç için bir kere oluşturulacak Session fabrikasını tutar.
 _SessionLocal = None
 
-def get_session_local():
-    """SessionLocal fabrikasını yalnızca gerektiğinde oluşturur (singleton)."""
+def get_db_session():
+    """
+    Mevcut worker süreci için bir veritabanı session'ı oluşturur ve döndürür.
+    Bu fonksiyon, görevler içinde kullanılacak.
+    """
     global _SessionLocal
-    if _SessionLocal is None:
-        # celery_app'ten her süreç için özel olarak oluşturulmuş engine'i al
-        from .celery_app import engine
-        if engine is None:
-            raise RuntimeError("Database engine not initialized for this worker process.")
-        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    return _SessionLocal
-
-def init_db():
-    """Ana süreçte veritabanı tablolarını oluşturur."""
-    DATABASE_URL = os.getenv("DATABASE_URL")
-    if not DATABASE_URL:
-        raise ValueError("DATABASE_URL ortam değişkeni ayarlanmamış!")
     
-    # Tablo oluşturma işlemi için geçici bir motor oluştur.
-    engine = sa_create_engine(DATABASE_URL)
-    Base.metadata.create_all(bind=engine)
-    engine.dispose()
+    # celery_app'ten her süreç için özel olarak oluşturulmuş engine'i al
+    from .celery_app import engine
+    
+    if engine is None:
+        # Bu durum, init sinyalinin çalışmadığı veya başarısız olduğu anlamına gelir.
+        raise RuntimeError("Database engine not initialized for this worker process. `worker_process_init` might have failed.")
+
+    # Eğer bu süreç için Session fabrikası daha önce oluşturulmamışsa, şimdi oluştur.
+    if _SessionLocal is None:
+        print(f"WORKER: Creating SessionLocal factory for process PID: {os.getpid()}")
+        _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    
+    # Yeni bir session oluştur
+    db = _SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()

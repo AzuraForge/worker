@@ -1,3 +1,5 @@
+# worker/src/azuraforge_worker/tasks/training_tasks.py
+
 import logging
 import os
 import traceback
@@ -8,14 +10,17 @@ from importlib import resources
 from contextlib import contextmanager
 import redis
 
-from ..celery_app import celery_app, engine
-from ..callbacks import RedisProgressCallback
-from azuraforge_dbmodels import Experiment, get_session_local
+from ..celery_app import celery_app
+# DÜZELTME: Artık 'database.py'den sadece 'get_db_session'ı alıyoruz
+from ..database import get_db_session
+from azuraforge_dbmodels import Experiment
 
+# ... (discover_and_register_pipelines ve diğer global tanımlar aynı kalıyor) ...
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES = {}
 
 def discover_and_register_pipelines():
+    #... bu fonksiyonun içeriği aynı ...
     global AVAILABLE_PIPELINES
     logging.info("Worker: Discovering and registering pipelines...")
     try:
@@ -49,21 +54,18 @@ def discover_and_register_pipelines():
 
 discover_and_register_pipelines()
 
+# DÜZELTME: Bu context manager artık yeni `get_db_session` fonksiyonunu kullanacak
 @contextmanager
 def get_db():
-    if engine is None: raise RuntimeError("Database engine not initialized for this worker process.")
-    SessionLocal = get_session_local(engine)
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    # Bu, 'database.py'deki yield/finally bloğunu çağıracak
+    yield from get_db_session()
 
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
 
 @celery_app.task(bind=True, name="start_training_pipeline")
 def start_training_pipeline(self, config: dict):
+    # ... (görev başlangıcındaki mantık aynı) ...
     task_id = self.request.id
     pipeline_name = config.get("pipeline_name", "unknown_pipeline")
     run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -72,13 +74,18 @@ def start_training_pipeline(self, config: dict):
     os.makedirs(experiment_dir, exist_ok=True)
     config.update({'experiment_id': experiment_id, 'task_id': task_id, 'experiment_dir': experiment_dir, 'start_time': datetime.now().isoformat()})
     
+    from ..callbacks import RedisProgressCallback
+    
     try:
+        # ... (pipeline bulma mantığı aynı) ...
         if pipeline_name not in AVAILABLE_PIPELINES:
             discover_and_register_pipelines()
             if pipeline_name not in AVAILABLE_PIPELINES:
                  raise ValueError(f"Pipeline '{pipeline_name}' not found after rediscovery.")
 
         PipelineClass = AVAILABLE_PIPELINES[pipeline_name]
+        
+        # 'with get_db()' şimdi her süreçte doğru çalışacak
         with get_db() as db:
             db.add(Experiment(id=experiment_id, task_id=task_id, pipeline_name=pipeline_name, status="STARTED", config=config, batch_id=config.get('batch_id'), batch_name=config.get('batch_name')))
             db.commit()
@@ -86,41 +93,44 @@ def start_training_pipeline(self, config: dict):
         pipeline_instance = PipelineClass(config)
         redis_callback = RedisProgressCallback(task_id=task_id)
         results = pipeline_instance.run(callbacks=[redis_callback])
-
-        # --- YENİ BÖLÜM: Model Kaydetme ---
+        
+        # ... (model kaydetme mantığı aynı) ...
         model_path = None
-        if pipeline_instance.learner:
-            # Modeli, kendine özel deney dizinine kaydediyoruz.
+        if hasattr(pipeline_instance, 'learner') and pipeline_instance.learner:
             model_filename = "best_model.json"
             model_path = os.path.join(experiment_dir, model_filename)
             pipeline_instance.learner.save_model(model_path)
             logging.info(f"Model for experiment {experiment_id} saved to {model_path}")
         else:
             logging.warning(f"Learner instance not found for experiment {experiment_id}. Model not saved.")
-        # --- BİTTİ ---
 
+        # 'with get_db()' şimdi her süreçte doğru çalışacak
         with get_db() as db:
             exp_to_update = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if exp_to_update:
                 exp_to_update.status = "SUCCESS"
                 exp_to_update.results = results
-                exp_to_update.model_path = model_path # <-- YENİ: Model yolunu DB'ye yaz
+                exp_to_update.model_path = model_path
                 exp_to_update.completed_at = datetime.now(datetime.utcnow().tzinfo)
                 db.commit()
         
         return {"experiment_id": experiment_id, "status": "SUCCESS", "model_path": model_path}
         
     except Exception as e:
+        # ... (hata yakalama bloğu aynı) ...
         tb_str = traceback.format_exc()
         error_message = str(e)
         error_code = "PIPELINE_EXECUTION_ERROR"
         if isinstance(e, ValueError): error_code = "PIPELINE_VALUE_ERROR"
         elif isinstance(e, FileNotFoundError): error_code = "PIPELINE_FILE_NOT_FOUND"
         logging.error(f"PIPELINE CRITICAL FAILURE in task {task_id}: ({error_code}) {error_message}\n{tb_str}")
+        
+        # 'with get_db()' şimdi her süreçte doğru çalışacak
         with get_db() as db:
             exp_to_update = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if exp_to_update:
                 exp_to_update.status = "FAILURE"
                 exp_to_update.error = {"error_code": error_code, "message": error_message, "traceback": tb_str}
-                exp_to_update.failed_at = datetime.now(datetime.utcnow().tzinfo); db.commit()
+                exp_to_update.failed_at = datetime.now(datetime.utcnow().tzinfo); 
+                db.commit()
         raise e
