@@ -1,31 +1,35 @@
 # worker/src/azuraforge_worker/database.py
-
+"""
+Bu modül, worker görevleri içinde veritabanı session'ı sağlamak için
+bir context manager sunar.
+"""
+import os
 from sqlalchemy.orm import sessionmaker
-import os  # <-- EKSİK OLAN IMPORT EKLENDİ
 
-# Bu global değişken, her süreç için bir kere oluşturulacak Session fabrikasını tutar.
+# Her süreç için Session fabrikasını saklamak üzere global bir değişken.
 _SessionLocal = None
 
 def get_db_session():
     """
-    Mevcut worker süreci için bir veritabanı session'ı oluşturur ve döndürür.
-    Bu fonksiyon, görevler içinde kullanılacak.
+    Mevcut worker süreci için bir veritabanı session'ı oluşturur ve yield eder.
+    Bu, 'with get_db_session() as db:' şeklinde kullanılmalıdır.
     """
     global _SessionLocal
     
-    # celery_app'ten her süreç için özel olarak oluşturulmuş engine'i al
+    # Her süreçte bir kez oluşturulan 'engine' nesnesini celery_app'ten al.
     from .celery_app import engine
     
     if engine is None:
-        # Bu durum, init sinyalinin çalışmadığı veya başarısız olduğu anlamına gelir.
-        raise RuntimeError("Database engine not initialized for this worker process. `worker_process_init` might have failed.")
+        raise RuntimeError(
+            "Database engine is not initialized for this worker process. "
+            "`worker_process_init` signal might have failed."
+        )
 
     # Eğer bu süreç için Session fabrikası daha önce oluşturulmamışsa, şimdi oluştur.
     if _SessionLocal is None:
-        print(f"WORKER: Creating SessionLocal factory for process PID: {os.getpid()}")
+        print(f"WORKER: First-time session factory creation for PID: {os.getpid()}")
         _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     
-    # Yeni bir session oluştur
     db = _SessionLocal()
     try:
         yield db
