@@ -4,12 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "azuraforge-worker"
-version = "0.1.2" # Versiyonu artırdık
+version = "0.1.3" # Versiyonu artırdık
 description = "The Celery worker for the AzuraForge Platform. Discovers and runs pipeline plugins."
 requires-python = ">=3.10"
 dependencies = [
+    # Tüm resmi uygulama eklentileri burada listelenmeli
     "azuraforge-app-stock-predictor @ git+https://github.com/AzuraForge/app-stock-predictor.git@main",
     "azuraforge-app-weather-forecaster @ git+https://github.com/AzuraForge/app-weather-forecaster.git@main",
+    "azuraforge-app-image-classifier @ git+https://github.com/AzuraForge/app-image-classifier.git@main",
+    "azuraforge-app-voice-generator @ git+https://github.com/AzuraForge/app-voice-generator.git@main",
+
+    # Diğer temel bağımlılıklar
     "azuraforge-dbmodels @ git+https://github.com/AzuraForge/dbmodels.git@main",
     "celery[redis]",
     "pyyaml",
