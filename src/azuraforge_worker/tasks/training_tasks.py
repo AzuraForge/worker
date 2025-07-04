@@ -1,8 +1,4 @@
 # worker/src/azuraforge_worker/tasks/training_tasks.py
-"""
-Bu modül, platformun ana model eğitim görevlerini içerir. Celery tarafından
-keşfedilir ve çalıştırılır.
-"""
 import logging
 import os
 import traceback
@@ -12,8 +8,9 @@ from importlib.metadata import entry_points
 from importlib import resources
 from contextlib import contextmanager
 from typing import Optional, Dict, Any, Tuple
-
+import pandas as pd
 import redis
+from functools import lru_cache
 
 from ..celery_app import celery_app
 from ..database import get_db_session
@@ -21,10 +18,58 @@ from azuraforge_dbmodels import Experiment
 from ..callbacks import RedisProgressCallback
 
 # --- Global Değişkenler ve Başlangıç Yapılandırması ---
-
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES: Dict[str, Any] = {}
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
+
+# === YENİ: PAYLAŞIMLI VERİ ÖNBELLEĞİ (BELLEK OPTIMIZASYONU) ===
+# Bu önbellek, ana worker süreci başladığında bir kez doldurulur.
+# Alt süreçler (child processes) bu veriye kopyalamadan (copy-on-write) erişir.
+# Bu, aynı büyük veri setinin birden çok kez belleğe yüklenmesini önler.
+# `lru_cache`, aynı parametrelerle tekrar çağrıldığında fonksiyonu çalıştırmak yerine
+# sonucu doğrudan döndürerek tekrar tekrar veri indirmeyi/yüklemeyi engeller.
+@lru_cache(maxsize=16)
+def get_shared_data(pipeline_name: str, cache_key_json: str) -> pd.DataFrame:
+    """
+    Verilen pipeline ve parametreler için veriyi disk önbelleğinden veya kaynaktan yükler.
+    LRU cache sayesinde bu fonksiyon aynı parametrelerle tekrar çağrılmaz.
+    """
+    from azuraforge_learner.caching import get_cache_filepath, load_from_cache, save_to_cache
+    
+    pipeline_class = AVAILABLE_PIPELINES.get(pipeline_name)
+    if not pipeline_class:
+        raise ValueError(f"Paylaşımlı veri yüklenirken pipeline '{pipeline_name}' bulunamadı.")
+
+    # Cache key'i JSON string'den dict'e çevir
+    caching_params = json.loads(cache_key_json)
+    
+    # Geçici bir pipeline örneği oluşturarak `_load_data_from_source` metoduna erişiyoruz.
+    # Konfigürasyonun tamamına gerek yok, sadece caching için gerekenler yeterli.
+    temp_config = {"data_sourcing": caching_params}
+    temp_pipeline_instance = pipeline_class(temp_config)
+
+    cache_dir = os.getenv("CACHE_DIR", ".cache")
+    cache_filepath = get_cache_filepath(cache_dir, pipeline_name, caching_params)
+    
+    # Maksimum önbellek yaşı gibi sistem ayarları için geçici konfigi kullan
+    system_config = temp_pipeline_instance.config.get("system", {})
+    cache_max_age = system_config.get("cache_max_age_hours", 24)
+
+    # Önce disk önbelleğini kontrol et
+    cached_data = load_from_cache(cache_filepath, cache_max_age)
+    if cached_data is not None:
+        logging.info(f"Paylaşımlı önbellek için veri diskten yüklendi: {cache_filepath}")
+        return cached_data
+    
+    # Önbellekte yoksa kaynaktan indir
+    logging.info(f"Paylaşımlı önbellek için veri kaynaktan indiriliyor. Parametreler: {caching_params}")
+    source_data = temp_pipeline_instance._load_data_from_source()
+    if isinstance(source_data, pd.DataFrame) and not source_data.empty:
+        save_to_cache(source_data, cache_filepath)
+
+    return source_data
+# === DEĞİŞİKLİK SONU ===
+
 
 def discover_and_register_pipelines():
     """
@@ -87,11 +132,10 @@ os.makedirs(REPORTS_BASE_DIR, exist_ok=True)
 
 @contextmanager
 def get_db():
-    """Veritabanı session'ı için bir context manager."""
     yield from get_db_session()
 
 def _prepare_and_log_initial_state(task_id: str, user_config: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
-    """Deney için gerekli ID'leri, dizinleri oluşturur ve veritabanına ilk kaydı atar."""
+    # ... (Bu fonksiyon aynı kalıyor, değişiklik yok) ...
     pipeline_name = user_config.get("pipeline_name")
     if not pipeline_name:
         raise ValueError("'pipeline_name' must be provided in the configuration.")
@@ -125,8 +169,9 @@ def _prepare_and_log_initial_state(task_id: str, user_config: Dict[str, Any]) ->
     
     return experiment_id, full_config
 
+
 def _update_experiment_on_completion(experiment_id: str, results: Dict[str, Any], model_path: Optional[str]):
-    """Deney başarıyla tamamlandığında veritabanını günceller."""
+    # ... (Bu fonksiyon aynı kalıyor, değişiklik yok) ...
     with get_db() as db:
         exp_to_update = db.query(Experiment).filter(Experiment.id == experiment_id).first()
         if exp_to_update:
@@ -137,8 +182,9 @@ def _update_experiment_on_completion(experiment_id: str, results: Dict[str, Any]
             db.commit()
             logging.info(f"Experiment {experiment_id} updated in DB with status SUCCESS.")
 
+
 def _update_experiment_on_failure(experiment_id: str, error: Exception):
-    """Deney başarısız olduğunda veritabanını günceller."""
+    # ... (Bu fonksiyon aynı kalıyor, değişiklik yok) ...
     tb_str = traceback.format_exc()
     error_message = str(error)
     error_code = "PIPELINE_EXECUTION_ERROR"
@@ -158,6 +204,7 @@ def _update_experiment_on_failure(experiment_id: str, error: Exception):
             db.commit()
             logging.info(f"Experiment {experiment_id} updated in DB with status FAILURE.")
 
+
 @celery_app.task(bind=True, name="start_training_pipeline")
 def start_training_pipeline(self, user_config: Dict[str, Any]):
     """
@@ -170,15 +217,28 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 
         PipelineClass = AVAILABLE_PIPELINES.get(pipeline_name)
         if not PipelineClass:
-            discover_and_register_pipelines()
+            discover_and_register_pipelines() # Güvenlik için tekrar keşfet
             PipelineClass = AVAILABLE_PIPELINES.get(pipeline_name)
             if not PipelineClass:
                 raise ValueError(f"Pipeline '{pipeline_name}' is not registered or could not be found.")
 
         pipeline_instance = PipelineClass(full_config)
         
+        # === YENİ: Paylaşımlı veriyi pipeline'a enjekte etme ===
+        # TimeSeriesPipeline ise, veriyi paylaşımlı önbellekten alıp `run` metoduna paslıyoruz.
+        from azuraforge_learner.pipelines import TimeSeriesPipeline
+        
+        # Ekstra argümanlar
+        run_kwargs = {}
+        if isinstance(pipeline_instance, TimeSeriesPipeline):
+            caching_params = pipeline_instance.get_caching_params()
+            cache_key_json = json.dumps(caching_params, sort_keys=True)
+            shared_data = get_shared_data(pipeline_name, cache_key_json)
+            run_kwargs['raw_data'] = shared_data
+        # === DEĞİŞİKLİK SONU ===
+
         redis_callback = RedisProgressCallback(task_id=self.request.id)
-        results = pipeline_instance.run(callbacks=[redis_callback])
+        results = pipeline_instance.run(callbacks=[redis_callback], **run_kwargs)
 
         model_path = None
         if hasattr(pipeline_instance, 'learner') and pipeline_instance.learner:
