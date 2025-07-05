@@ -1,0 +1,15 @@
+name: API CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  call-reusable-workflow:
+    # AzuraForge/platform reposundaki merkezi workflow'u çağırır.
+    uses: AzuraForge/platform/.github/workflows/ci-python-lint-test.yml@main
+    with:
+      python-version: '3.10'
+      working-directory: './' # Bu repo'nun kök dizininde çalış
