@@ -18,6 +18,7 @@ from azuraforge_dbmodels import Experiment
 from ..callbacks import RedisProgressCallback
 from azuraforge_learner import TimeSeriesPipeline, Learner
 
+# ... (dosyanın üst kısmı aynı kalıyor) ...
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES: Dict[str, Any] = {}
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
@@ -84,6 +85,7 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
+            # ... (fonksiyonun üst kısmı aynı) ...
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -126,13 +128,12 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             prediction_value = float(final_prediction.flatten()[0])
             
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
-            
-            # --- KRİTİK DÜZELTME BURADA ---
-            # Anahtarın (key) .isoformat metoduna sahip olup olmadığını kontrol et.
-            # Sahipse (yani bir Timestamp nesnesiyse) metodu çağır, değilse (yani zaten bir string ise)
-            # olduğu gibi kullan.
+
+            # --- KÖK NEDEN DÜZELTMESİ ---
+            # Anahtarın tipinden bağımsız olarak, her anahtarı string'e çevirerek
+            # JSON serileştirmesini garanti altına alıyoruz.
             string_keyed_history = {
-                key.isoformat() if hasattr(key, 'isoformat') else str(key): value
+                str(key.isoformat() if hasattr(key, 'isoformat') else key): value
                 for key, value in history_for_chart.items()
             }
             # --- DÜZELTME SONU ---
