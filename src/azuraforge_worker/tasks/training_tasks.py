@@ -18,7 +18,6 @@ from azuraforge_dbmodels import Experiment
 from ..callbacks import RedisProgressCallback
 from azuraforge_learner import TimeSeriesPipeline, Learner
 
-# ... (dosyanın üst kısmı aynı kalıyor) ...
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES: Dict[str, Any] = {}
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
@@ -81,11 +80,12 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
         else: logging.error(f"CRITICAL: Could not log failure for task {self.request.id}. Error: {e}", exc_info=True)
         raise e
 
+
 @celery_app.task(name="predict_from_model_task")
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
-            # ... (fonksiyonun üst kısmı aynı) ...
+            # ... (fonksiyonun üst kısmı aynı kalıyor) ...
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -127,15 +127,16 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             prediction_value = float(final_prediction.flatten()[0])
             
-            history_for_chart = request_df[pipeline_instance.target_col].to_dict()
-
-            # --- KÖK NEDEN DÜZELTMESİ ---
-            # Anahtarın tipinden bağımsız olarak, her anahtarı string'e çevirerek
-            # JSON serileştirmesini garanti altına alıyoruz.
-            string_keyed_history = {
-                str(key.isoformat() if hasattr(key, 'isoformat') else key): value
-                for key, value in history_for_chart.items()
-            }
+            # --- NIHAI VE KALICI DÜZELTME BURADA ---
+            # Pandas DataFrame'in index'ini önce DatetimeIndex'e çeviriyoruz.
+            # Bu, index string olsa bile onu tarih nesnesine dönüştürür.
+            # Sonra .strftime ile istediğimiz string formatına çeviriyoruz.
+            # Bu, veri tipinin ne olduğundan bağımsız olarak her zaman çalışır.
+            history_df = request_df[[pipeline_instance.target_col]].copy()
+            history_df.index = pd.to_datetime(history_df.index)
+            history_df.index = history_df.index.strftime('%Y-%m-%dT%H:%M:%S')
+            
+            string_keyed_history = history_df.to_dict()[pipeline_instance.target_col]
             # --- DÜZELTME SONU ---
 
             return {
