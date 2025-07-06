@@ -1,0 +1,37 @@
+# Bu kural, Git'e tüm dosyaları "metin" dosyası olarak kabul etmesini ve
+# satır sonlarını otomatik olarak yönetmesini söyler.
+# Commit sırasında tüm CRLF'ler LF'e çevrilir.
+# Checkout sırasında ise işletim sistemine uygun formata (Windows'ta CRLF, Linux/macOS'ta LF) çevrilir.
+* text=auto eol=lf
+
+# .sh dosyalarının her zaman LF ile checkout edilmesini zorunlu kıl.
+# Bu, Windows'ta bile .sh dosyalarının doğru formatta olmasını sağlar.
+*.sh eol=lf
+*.py eol=lf
+*.js eol=lf
+*.jsx eol=lf
+*.css eol=lf
+*.json eol=lf
+*.yml eol=lf
+*.yaml eol=lf
+*.md eol=lf
+*.html eol=lf
+*.toml eol=lf
+*.txt eol=lf
+Dockerfile eol=lf
+Makefile eol=lf
+Procfile eol=lf
+
+# Binary dosyaları bu kuralın dışında tut.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.svg binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.pdf binary
+*.zip binary
