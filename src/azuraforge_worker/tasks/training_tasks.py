@@ -131,10 +131,14 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             
-            # === DEĞİŞİKLİK BURADA: NumPy float'ı standart Python float'a çeviriyoruz ===
             prediction_value = float(final_prediction.flatten()[0])
-                
-            return {"prediction": prediction_value, "experiment_id": experiment_id}
+            
+            # === DEĞİŞİKLİK BURADA: Sonuca target_col bilgisini ekliyoruz ===
+            return {
+                "prediction": prediction_value, 
+                "experiment_id": experiment_id,
+                "target_col": pipeline_instance.target_col
+            }
             
         except Exception as e:
             logging.error(f"Prediction task failed for experiment {experiment_id}: {e}", exc_info=True)
