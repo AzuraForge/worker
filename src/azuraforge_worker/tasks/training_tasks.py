@@ -84,6 +84,7 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
+            # 1. Deney ve pipeline bilgilerini yükle
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -92,8 +93,9 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             if not PipelineClass: raise ValueError(f"Pipeline '{exp.pipeline_name}' is not registered.")
             
             pipeline_instance = PipelineClass(exp.config)
+            
+            # 2. Modeli ve öğreniciyi (learner) oluştur ve eğitilmiş ağırlıkları yükle
             is_timeseries = isinstance(pipeline_instance, TimeSeriesPipeline)
-
             if is_timeseries:
                 full_config_json = json.dumps(exp.config, sort_keys=True)
                 historical_data = get_shared_data(exp.pipeline_name, full_config_json)
@@ -107,42 +109,37 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             learner = Learner(model=model)
             learner.load_model(exp.model_path)
 
-            request_df = None
-            if request_data:
-                request_df = pd.DataFrame(request_data)
-            elif is_timeseries:
+            # 3. Tahmin için kullanılacak veriyi hazırla
+            if is_timeseries:
                 if 'historical_data' not in locals():
                     full_config_json = json.dumps(exp.config, sort_keys=True)
                     historical_data = get_shared_data(exp.pipeline_name, full_config_json)
                 if len(historical_data) < seq_len: raise ValueError(f"Not enough historical data ({len(historical_data)}) for sequence of {seq_len}.")
                 request_df = historical_data.tail(seq_len)
             else:
-                raise ValueError("Prediction data is required for non-time-series models.")
+                 # TODO: Zaman serisi olmayan modeller için veri yükleme mantığı eklenecek.
+                raise NotImplementedError("Prediction for non-time-series models is not yet implemented.")
             
-            if not hasattr(pipeline_instance, 'prepare_data_for_prediction'): raise NotImplementedError("Pipeline does not implement 'prepare_data_for_prediction'.")
-            
+            # 4. Veriyi modele uygun formata getir ve tahmini yap
             prepared_data = pipeline_instance.prepare_data_for_prediction(request_df)
             scaled_prediction = learner.predict(prepared_data)
             
+            # 5. Ölçeklenmiş tahmini orijinal değer aralığına geri çevir
             if not hasattr(pipeline_instance, 'target_scaler'): raise RuntimeError("Pipeline's target_scaler is not available.")
-            
             unscaled_prediction = pipeline_instance.target_scaler.inverse_transform(scaled_prediction)
             
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
-            
             prediction_value = float(final_prediction.flatten()[0])
             
-            # === DÜZELTME BAŞLANGICI: Anahtar tipi kontrolü ile sağlamlaştırma ===
+            # 6. Sonucu JSON uyumlu hale getir
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
-            string_keyed_history = {}
-            for key, value in history_for_chart.items():
-                # Anahtarın 'isoformat' metodu var mı diye kontrol et (Timestamp, datetime vb.)
-                if hasattr(key, 'isoformat'):
-                    string_keyed_history[key.isoformat()] = value
-                # Değilse, zaten string veya başka bir temel tip olduğunu varsay
-                else:
-                    string_keyed_history[str(key)] = value
-            # === DÜZELTME SONU ===
+            
+            # === KÖK SORUN DÜZELTMESİ: Anahtar tipi kontrolü ile sağlamlaştırma ===
+            # Bu kod, anahtarın `Timestamp` veya `str` olmasına bakmaksızın doğru çalışır.
+            string_keyed_history = {
+                key.isoformat() if hasattr(key, 'isoformat') else str(key): value
+                for key, value in history_for_chart.items()
+            }
 
             return {
                 "prediction": prediction_value, 
