@@ -7,8 +7,9 @@ from datetime import datetime
 from importlib.metadata import entry_points
 from importlib import resources
 from contextlib import contextmanager
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 import pandas as pd
+import numpy as np
 import redis
 from functools import lru_cache
 
@@ -16,6 +17,7 @@ from ..celery_app import celery_app
 from ..database import get_db_session
 from azuraforge_dbmodels import Experiment
 from ..callbacks import RedisProgressCallback
+from azuraforge_learner import TimeSeriesPipeline
 
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES: Dict[str, Any] = {}
@@ -23,22 +25,14 @@ REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 
 @lru_cache(maxsize=16)
 def get_shared_data(pipeline_name: str, full_config_json: str) -> pd.DataFrame:
-    """
-    Verilen pipeline ve parametreler için veriyi disk önbelleğinden veya kaynaktan yükler.
-    LRU cache sayesinde bu fonksiyon aynı parametrelerle tekrar çağrılmaz.
-    """
     from azuraforge_learner.caching import get_cache_filepath, load_from_cache, save_to_cache
     
     pipeline_class = AVAILABLE_PIPELINES.get(pipeline_name)
     if not pipeline_class:
         raise ValueError(f"Paylaşımlı veri yüklenirken pipeline '{pipeline_name}' bulunamadı.")
 
-    # === KRİTİK DÜZELTME BAŞLANGICI: Pydantic Hatasını Çözme ===
-    # Geçici pipeline örneğini, tam ve geçerli bir konfigürasyonla oluşturuyoruz.
-    # Bu, Pydantic doğrulamasından geçmesini sağlar.
     full_config = json.loads(full_config_json)
     temp_pipeline_instance = pipeline_class(full_config)
-    # === KRİTİK DÜZELTME SONU ===
     
     caching_params = temp_pipeline_instance.get_caching_params()
     cache_dir = os.getenv("CACHE_DIR", ".cache")
@@ -59,7 +53,6 @@ def get_shared_data(pipeline_name: str, full_config_json: str) -> pd.DataFrame:
 
     return source_data
 
-# ... (discover_and_register_pipelines ve diğer yardımcı fonksiyonlar aynı kalıyor) ...
 def discover_and_register_pipelines():
     global AVAILABLE_PIPELINES
     logging.info("Worker: Discovering and registering pipelines via entry_points...")
@@ -180,11 +173,8 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
         run_kwargs = {}
         from azuraforge_learner.pipelines import TimeSeriesPipeline
         if isinstance(pipeline_instance, TimeSeriesPipeline):
-            # === KRİTİK DÜZELTME BAŞLANGICI: Pydantic Hatasını Çözme ===
-            # get_shared_data fonksiyonuna tam konfigürasyonu gönderiyoruz.
             full_config_json = json.dumps(full_config, sort_keys=True)
             shared_data = get_shared_data(pipeline_name, full_config_json)
-            # === KRİTİK DÜZELTME SONU ===
             run_kwargs['raw_data'] = shared_data
 
         redis_callback = RedisProgressCallback(task_id=self.request.id)
@@ -204,3 +194,63 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
         if experiment_id: _update_experiment_on_failure(experiment_id, e)
         else: logging.error(f"CRITICAL: Could not log failure for task {self.request.id}. Error: {e}", exc_info=True)
         raise e
+
+@celery_app.task(name="predict_from_model_task")
+def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
+    """
+    Verilen bir deneye ait modeli kullanarak tahmin yapar.
+    Bu görev, mantığı `api` servisinden `worker`'a taşır.
+    """
+    with get_db() as db:
+        try:
+            exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
+            if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
+            if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
+
+            PipelineClass = AVAILABLE_PIPELINES.get(exp.pipeline_name)
+            if not PipelineClass: raise ValueError(f"Pipeline '{exp.pipeline_name}' is not registered.")
+            
+            pipeline_instance = PipelineClass(exp.config)
+            is_timeseries = isinstance(pipeline_instance, TimeSeriesPipeline)
+
+            if is_timeseries:
+                full_config_json = json.dumps(exp.config, sort_keys=True)
+                historical_data = get_shared_data(exp.pipeline_name, full_config_json)
+                pipeline_instance._fit_scalers(historical_data)
+
+            num_features = len(exp.results.get('feature_cols', [])) if exp.results else 1
+            seq_len = exp.config.get('model_params', {}).get('sequence_length', 60)
+            model_input_shape = (1, seq_len, num_features) if is_timeseries else (1, 3, 32, 32)
+            model = pipeline_instance._create_model(model_input_shape)
+            learner = pipeline_instance._create_learner(model, [])
+            learner.load_model(exp.model_path)
+
+            request_df = None
+            if request_data:
+                request_df = pd.DataFrame(request_data)
+            elif is_timeseries:
+                if 'historical_data' not in locals():
+                    full_config_json = json.dumps(exp.config, sort_keys=True)
+                    historical_data = get_shared_data(exp.pipeline_name, full_config_json)
+                if len(historical_data) < seq_len: raise ValueError(f"Not enough historical data ({len(historical_data)}) for sequence of {seq_len}.")
+                request_df = historical_data.tail(seq_len)
+            else:
+                raise ValueError("Prediction data is required for non-time-series models.")
+            
+            if not hasattr(pipeline_instance, 'prepare_data_for_prediction'): raise NotImplementedError("Pipeline does not implement 'prepare_data_for_prediction'.")
+            
+            prepared_data = pipeline_instance.prepare_data_for_prediction(request_df)
+            scaled_prediction = learner.predict(prepared_data)
+            
+            if not hasattr(pipeline_instance, 'target_scaler'): raise RuntimeError("Pipeline's target_scaler is not available.")
+            
+            unscaled_prediction = pipeline_instance.target_scaler.inverse_transform(scaled_prediction)
+            
+            final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
+                
+            return {"prediction": final_prediction.flatten()[0], "experiment_id": experiment_id}
+            
+        except Exception as e:
+            logging.error(f"Prediction task failed for experiment {experiment_id}: {e}", exc_info=True)
+            # Celery'nin hatayı yakalayıp API'ye iletmesi için yeniden fırlatıyoruz.
+            raise
