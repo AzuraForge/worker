@@ -1,4 +1,3 @@
-# worker/src/azuraforge_worker/tasks/training_tasks.py
 import logging
 import os
 import traceback
@@ -133,18 +132,23 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             
             prediction_value = float(final_prediction.flatten()[0])
             
-            # === DÜZELTME BAŞLANGICI: Timestamp anahtarlarını JSON uyumlu string'lere çeviriyoruz ===
+            # === DÜZELTME BAŞLANGICI: Anahtar tipi kontrolü ile sağlamlaştırma ===
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
-            # pandas.to_dict(), anahtar olarak Timestamp nesneleri kullanır, bu JSON için geçersizdir.
-            # Anahtarları ISO formatında string'lere çevirerek bu sorunu çözüyoruz.
-            string_keyed_history = {key.isoformat(): value for key, value in history_for_chart.items()}
+            string_keyed_history = {}
+            for key, value in history_for_chart.items():
+                # Anahtarın 'isoformat' metodu var mı diye kontrol et (Timestamp, datetime vb.)
+                if hasattr(key, 'isoformat'):
+                    string_keyed_history[key.isoformat()] = value
+                # Değilse, zaten string veya başka bir temel tip olduğunu varsay
+                else:
+                    string_keyed_history[str(key)] = value
             # === DÜZELTME SONU ===
 
             return {
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
                 "target_col": pipeline_instance.target_col,
-                "history": string_keyed_history # <-- Düzeltilmiş sözlüğü kullan
+                "history": string_keyed_history
             }
             
         except Exception as e:
