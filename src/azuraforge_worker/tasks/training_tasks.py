@@ -85,7 +85,7 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
-            # ... (fonksiyonun üst kısmı aynı kalıyor) ...
+            # ... (fonksiyonun üst kısmı aynı, model yüklemeye kadar) ...
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -127,16 +127,18 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             prediction_value = float(final_prediction.flatten()[0])
             
-            # --- NIHAI VE KALICI DÜZELTME BURADA ---
-            # Pandas DataFrame'in index'ini önce DatetimeIndex'e çeviriyoruz.
-            # Bu, index string olsa bile onu tarih nesnesine dönüştürür.
-            # Sonra .strftime ile istediğimiz string formatına çeviriyoruz.
-            # Bu, veri tipinin ne olduğundan bağımsız olarak her zaman çalışır.
+            # --- NIHAI VE KALICI DÜZELTME #2 ---
+            # 1. Hedef sütunu alırken DataFrame olarak kalmasını sağlıyoruz (çift köşeli parantez).
             history_df = request_df[[pipeline_instance.target_col]].copy()
-            history_df.index = pd.to_datetime(history_df.index)
-            history_df.index = history_df.index.strftime('%Y-%m-%dT%H:%M:%S')
             
-            string_keyed_history = history_df.to_dict()[pipeline_instance.target_col]
+            # 2. Index'i string'e çeviriyoruz.
+            history_df.index = pd.to_datetime(history_df.index).strftime('%Y-%m-%dT%H:%M:%S')
+
+            # 3. to_dict() metoduna 'series' oryantasyonu veriyoruz.
+            # Bu, {'sütun_adı': Series} formatında bir çıktı verir.
+            # Böylece .to_dict()['Close'] her zaman çalışır.
+            history_as_series = history_df.to_dict('series')[pipeline_instance.target_col]
+            string_keyed_history = history_as_series.to_dict()
             # --- DÜZELTME SONU ---
 
             return {
