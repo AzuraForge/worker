@@ -67,7 +67,7 @@ def _update_experiment_on_completion(experiment_id, results, model_path):
     with get_db() as db: exp = db.query(Experiment).filter_by(id=experiment_id).first(); exp.status, exp.results, exp.model_path, exp.completed_at = "SUCCESS", results, model_path, datetime.now(datetime.utcnow().tzinfo); db.commit(); logging.info(f"Experiment {experiment_id} updated to SUCCESS.")
 def _update_experiment_on_failure(experiment_id, error):
     tb_str, error_message, error_code = traceback.format_exc(), str(error), "PIPELINE_EXECUTION_ERROR"
-    with get_db() as db: exp = db.query(Experiment).filter_by(id=experiment_id).first(); exp.status, exp.error, exp.failed_at = "FAILURE", {"error_code": error_code, "message": error_message, "traceback": tb_str}, datetime.now(datetime.utcnow().tzinfo); db.commit(); logging.info(f"Experiment {experiment_id} updated to FAILURE.")
+    with get_db() as db: exp = db.query(Experiment).filter_by(id=experiment_id).first(); exp.status, exp.error, exp.failed_at = "FAILURE", {"error_code": error_code, "message": error_message, "traceback": tb_str}, datetime.now(datetime.utcnow().tzinfo); logging.info(f"Experiment {experiment_id} updated to FAILURE.")
 
 @celery_app.task(bind=True, name="start_training_pipeline")
 def start_training_pipeline(self, user_config: Dict[str, Any]):
@@ -133,14 +133,18 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             
             prediction_value = float(final_prediction.flatten()[0])
             
-            # === DEĞİŞİKLİK BURADA: Sonuca geçmiş veriyi de ekliyoruz ===
+            # === DÜZELTME BAŞLANGICI: Timestamp anahtarlarını JSON uyumlu string'lere çeviriyoruz ===
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
+            # pandas.to_dict(), anahtar olarak Timestamp nesneleri kullanır, bu JSON için geçersizdir.
+            # Anahtarları ISO formatında string'lere çevirerek bu sorunu çözüyoruz.
+            string_keyed_history = {key.isoformat(): value for key, value in history_for_chart.items()}
+            # === DÜZELTME SONU ===
 
             return {
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
                 "target_col": pipeline_instance.target_col,
-                "history": history_for_chart
+                "history": string_keyed_history # <-- Düzeltilmiş sözlüğü kullan
             }
             
         except Exception as e:
