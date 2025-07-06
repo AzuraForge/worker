@@ -133,11 +133,14 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             
             prediction_value = float(final_prediction.flatten()[0])
             
-            # === DEĞİŞİKLİK BURADA: Sonuca target_col bilgisini ekliyoruz ===
+            # === DEĞİŞİKLİK BURADA: Sonuca geçmiş veriyi de ekliyoruz ===
+            history_for_chart = request_df[pipeline_instance.target_col].to_dict()
+
             return {
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
-                "target_col": pipeline_instance.target_col
+                "target_col": pipeline_instance.target_col,
+                "history": history_for_chart
             }
             
         except Exception as e:
