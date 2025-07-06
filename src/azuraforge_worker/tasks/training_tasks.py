@@ -128,10 +128,12 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
             
             # --- KRİTİK DÜZELTME BURADA ---
-            # Timestamp nesnelerini anahtar olarak kullanmak yerine,
-            # onları ISO formatında string'e çeviriyoruz.
+            # Anahtarın (key) .isoformat metoduna sahip olup olmadığını kontrol et.
+            # Sahipse (yani bir Timestamp nesnesiyse) metodu çağır, değilse (yani zaten bir string ise)
+            # olduğu gibi kullan.
             string_keyed_history = {
-                key.isoformat(): value for key, value in history_for_chart.items()
+                key.isoformat() if hasattr(key, 'isoformat') else str(key): value
+                for key, value in history_for_chart.items()
             }
             # --- DÜZELTME SONU ---
 
@@ -139,7 +141,7 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
                 "target_col": pipeline_instance.target_col,
-                "history": string_keyed_history # Değiştirilmiş sözlüğü kullan
+                "history": string_keyed_history
             }
             
         except Exception as e:
