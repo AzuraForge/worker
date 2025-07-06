@@ -127,19 +127,17 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             prediction_value = float(final_prediction.flatten()[0])
             
-            # --- NIHAI VE KALICI DÜZELTME #2 ---
-            # 1. Hedef sütunu alırken DataFrame olarak kalmasını sağlıyoruz (çift köşeli parantez).
-            history_df = request_df[[pipeline_instance.target_col]].copy()
-            
-            # 2. Index'i string'e çeviriyoruz.
-            history_df.index = pd.to_datetime(history_df.index).strftime('%Y-%m-%dT%H:%M:%S')
+            # === HATAYI GİDEREN DEĞİŞİKLİK BURADA BAŞLIYOR ===
+            # Daha basit ve sağlam bir yöntemle geçmiş veriyi hazırlıyoruz.
+            # 1. Hedef sütunu bir Pandas Serisi olarak seç.
+            history_series = request_df[pipeline_instance.target_col]
 
-            # 3. to_dict() metoduna 'series' oryantasyonu veriyoruz.
-            # Bu, {'sütun_adı': Series} formatında bir çıktı verir.
-            # Böylece .to_dict()['Close'] her zaman çalışır.
-            history_as_series = history_df.to_dict('series')[pipeline_instance.target_col]
-            string_keyed_history = history_as_series.to_dict()
-            # --- DÜZELTME SONU ---
+            # 2. Serinin index'ini frontend'in beklediği ISO string formatına çevir.
+            history_series.index = pd.to_datetime(history_series.index).strftime('%Y-%m-%dT%H:%M:%S')
+            
+            # 3. Seriyi doğrudan sözlüğe çevir. Bu, KeyError riskini ortadan kaldırır.
+            string_keyed_history = history_series.to_dict()
+            # === DEĞİŞİKLİK SONU ===
 
             return {
                 "prediction": prediction_value, 
