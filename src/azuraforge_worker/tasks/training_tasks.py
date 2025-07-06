@@ -17,14 +17,12 @@ from ..celery_app import celery_app
 from ..database import get_db_session
 from azuraforge_dbmodels import Experiment
 from ..callbacks import RedisProgressCallback
-# === DEĞİŞİKLİK: Learner'ı da import ediyoruz ===
 from azuraforge_learner import TimeSeriesPipeline, Learner
 
 REDIS_PIPELINES_KEY = "azuraforge:pipelines_catalog"
 AVAILABLE_PIPELINES: Dict[str, Any] = {}
 REPORTS_BASE_DIR = os.path.abspath(os.getenv("REPORTS_DIR", "/app/reports"))
 
-# ... (get_shared_data, discover_and_register_pipelines, ve _helper fonksiyonları aynı kalıyor) ...
 @lru_cache(maxsize=16)
 def get_shared_data(pipeline_name: str, full_config_json: str) -> pd.DataFrame:
     from azuraforge_learner.caching import get_cache_filepath, load_from_cache, save_to_cache
@@ -107,8 +105,6 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             model_input_shape = (1, seq_len, num_features) if is_timeseries else (1, 3, 32, 32)
             model = pipeline_instance._create_model(model_input_shape)
             
-            # === DEĞİŞİKLİK BURADA: Learner'ı basitçe oluşturuyoruz ===
-            # Artık criterion veya optimizer'a ihtiyacımız yok.
             learner = Learner(model=model)
             learner.load_model(exp.model_path)
 
@@ -134,8 +130,11 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             unscaled_prediction = pipeline_instance.target_scaler.inverse_transform(scaled_prediction)
             
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
+            
+            # === DEĞİŞİKLİK BURADA: NumPy float'ı standart Python float'a çeviriyoruz ===
+            prediction_value = float(final_prediction.flatten()[0])
                 
-            return {"prediction": final_prediction.flatten()[0], "experiment_id": experiment_id}
+            return {"prediction": prediction_value, "experiment_id": experiment_id}
             
         except Exception as e:
             logging.error(f"Prediction task failed for experiment {experiment_id}: {e}", exc_info=True)
