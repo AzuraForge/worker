@@ -7,8 +7,6 @@ import os
 from celery import Celery
 from celery.signals import worker_process_init, worker_process_shutdown
 
-# Global değişken, her bir worker sürecinin kendi DB motorunu tutmasını sağlar.
-# Başlangıçta None olarak ayarlanır.
 engine = None
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -20,26 +18,33 @@ celery_app = Celery(
     include=["azuraforge_worker.tasks.training_tasks"]
 )
 
-def _create_database_url_for_worker() -> str:
-    """Worker için DATABASE_URL'i ortam değişkenlerinden oluşturur."""
-    user = os.environ.get("POSTGRES_USER")
-    password = os.environ.get("POSTGRES_PASSWORD")
-    host = os.environ.get("POSTGRES_HOST", "postgres")
-    port = os.environ.get("POSTGRES_DB_PORT", "5432")
-    db_name = os.environ.get("POSTGRES_DB", "azuraforge")
+def _get_database_url_for_worker() -> str:
+    # --- DEĞİŞİKLİK BURADA BAŞLIYOR ---
+    # 1. Öncelik: Ortamdan gelen hazır DATABASE_URL
+    if db_url := os.getenv("DATABASE_URL"):
+        return db_url
+    
+    # 2. Öncelik: Parçalardan birleştirme (sır dosyaları veya .env'den gelenler)
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_DB_PORT", "5432")
+    db_name = os.getenv("POSTGRES_DB")
 
-    if not all([user, password, host, port, db_name]):
-        # Bu, entrypoint script'inin sırları doğru şekilde export edemediği anlamına gelir.
-        raise ValueError("Database credentials not found in worker's environment.")
+    if all([user, password, host, port, db_name]):
+        return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
         
-    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+    # 3. Öncelik: Hiçbiri yoksa hata ver
+    raise ValueError(
+        "Could not determine DATABASE_URL. "
+        "Please set either DATABASE_URL directly, or all of "
+        "POSTGRES_USER, POSTGRES_PASSWORD, and POSTGRES_HOST."
+    )
+    # --- DEĞİŞİKLİK BURADA BİTİYOR ---
+
 
 @worker_process_init.connect
 def init_worker_db_connection(**kwargs):
-    """
-    Her bir Celery alt süreci (worker process) başladığında tetiklenir.
-    Bu fonksiyon, her alt sürece kendi veritabanı bağlantı havuzunu oluşturur.
-    """
     global engine
     process_id = os.getpid()
     print(f"WORKER: Initializing DB connection for worker process PID: {process_id}")
@@ -47,20 +52,17 @@ def init_worker_db_connection(**kwargs):
     from azuraforge_dbmodels import sa_create_engine
     
     try:
-        db_url = _create_database_url_for_worker()
+        db_url = _get_database_url_for_worker()
         engine = sa_create_engine(db_url, pool_pre_ping=True)
-        # Bağlantıyı test etmek için basit bir sorgu
         with engine.connect() as connection:
             print(f"WORKER: DB connection for process {process_id} validated successfully.")
     except Exception as e:
         print(f"WORKER: FATAL - DB connection for process {process_id} failed: {e}")
-        # Hata durumunda motoru None olarak bırakarak görevin başarısız olmasını sağla
         engine = None
         raise
 
 @worker_process_shutdown.connect
 def shutdown_worker_db_connection(**kwargs):
-    """Her bir Celery alt süreci kapandığında çağrılır."""
     global engine
     if engine:
         process_id = os.getpid()
