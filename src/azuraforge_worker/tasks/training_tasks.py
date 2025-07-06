@@ -84,7 +84,6 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
-            # 1. Deney ve pipeline bilgilerini yükle
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -94,7 +93,6 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             
             pipeline_instance = PipelineClass(exp.config)
             
-            # 2. Modeli ve öğreniciyi (learner) oluştur ve eğitilmiş ağırlıkları yükle
             is_timeseries = isinstance(pipeline_instance, TimeSeriesPipeline)
             if is_timeseries:
                 full_config_json = json.dumps(exp.config, sort_keys=True)
@@ -109,7 +107,6 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             learner = Learner(model=model)
             learner.load_model(exp.model_path)
 
-            # 3. Tahmin için kullanılacak veriyi hazırla
             if is_timeseries:
                 if 'historical_data' not in locals():
                     full_config_json = json.dumps(exp.config, sort_keys=True)
@@ -117,35 +114,32 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
                 if len(historical_data) < seq_len: raise ValueError(f"Not enough historical data ({len(historical_data)}) for sequence of {seq_len}.")
                 request_df = historical_data.tail(seq_len)
             else:
-                 # TODO: Zaman serisi olmayan modeller için veri yükleme mantığı eklenecek.
                 raise NotImplementedError("Prediction for non-time-series models is not yet implemented.")
             
-            # 4. Veriyi modele uygun formata getir ve tahmini yap
             prepared_data = pipeline_instance.prepare_data_for_prediction(request_df)
             scaled_prediction = learner.predict(prepared_data)
             
-            # 5. Ölçeklenmiş tahmini orijinal değer aralığına geri çevir
             if not hasattr(pipeline_instance, 'target_scaler'): raise RuntimeError("Pipeline's target_scaler is not available.")
             unscaled_prediction = pipeline_instance.target_scaler.inverse_transform(scaled_prediction)
             
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             prediction_value = float(final_prediction.flatten()[0])
             
-            # 6. Sonucu JSON uyumlu hale getir
             history_for_chart = request_df[pipeline_instance.target_col].to_dict()
             
-            # === KÖK SORUN DÜZELTMESİ: Anahtar tipi kontrolü ile sağlamlaştırma ===
-            # Bu kod, anahtarın `Timestamp` veya `str` olmasına bakmaksızın doğru çalışır.
+            # --- KRİTİK DÜZELTME BURADA ---
+            # Timestamp nesnelerini anahtar olarak kullanmak yerine,
+            # onları ISO formatında string'e çeviriyoruz.
             string_keyed_history = {
-                key.isoformat() if hasattr(key, 'isoformat') else str(key): value
-                for key, value in history_for_chart.items()
+                key.isoformat(): value for key, value in history_for_chart.items()
             }
+            # --- DÜZELTME SONU ---
 
             return {
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
                 "target_col": pipeline_instance.target_col,
-                "history": string_keyed_history
+                "history": string_keyed_history # Değiştirilmiş sözlüğü kullan
             }
             
         except Exception as e:
