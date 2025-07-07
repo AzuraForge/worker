@@ -85,7 +85,6 @@ def start_training_pipeline(self, user_config: Dict[str, Any]):
 def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
     with get_db() as db:
         try:
-            # ... (fonksiyonun üst kısmı aynı, model yüklemeye kadar) ...
             exp = db.query(Experiment).filter(Experiment.id == experiment_id).first()
             if not exp: raise ValueError(f"Experiment with ID '{experiment_id}' not found.")
             if not exp.model_path or not os.path.exists(exp.model_path): raise FileNotFoundError(f"No model artifact for experiment '{experiment_id}'.")
@@ -127,24 +126,19 @@ def predict_from_model_task(experiment_id: str, request_data: Optional[List[Dict
             final_prediction = np.expm1(unscaled_prediction) if exp.config.get("feature_engineering", {}).get("target_col_transform") == 'log' else unscaled_prediction
             prediction_value = float(final_prediction.flatten()[0])
             
-            # === HATAYI GİDEREN DEĞİŞİKLİK BURADA BAŞLIYOR ===
-            # Daha basit ve sağlam bir yöntemle geçmiş veriyi hazırlıyoruz.
-            # 1. Hedef sütunu bir Pandas Serisi olarak seç.
             history_series = request_df[pipeline_instance.target_col]
-
-            # 2. Serinin index'ini frontend'in beklediği ISO string formatına çevir.
             history_series.index = pd.to_datetime(history_series.index).strftime('%Y-%m-%dT%H:%M:%S')
-            
-            # 3. Seriyi doğrudan sözlüğe çevir. Bu, KeyError riskini ortadan kaldırır.
             string_keyed_history = history_series.to_dict()
-            # === DEĞİŞİKLİK SONU ===
-
+            
+            # === ANA HATA DÜZELTMESİ BURADA ===
+            # Artık history'yi doğrudan, fazladan bir sarmalama olmadan döndürüyoruz.
             return {
                 "prediction": prediction_value, 
                 "experiment_id": experiment_id,
                 "target_col": pipeline_instance.target_col,
                 "history": string_keyed_history
             }
+            # === DÜZELTME SONU ===
             
         except Exception as e:
             logging.error(f"Prediction task failed for experiment {experiment_id}: {e}", exc_info=True)
