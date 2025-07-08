@@ -14,16 +14,15 @@ COPY ./scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh
 COPY ./scripts/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod +x /usr/local/bin/wait-for-it.sh /usr/local/bin/entrypoint.sh
 
-# === YENİ VE DOĞRU YAPI ===
-# 1. Önce kaynak kodunu ve bağımlılık dosyalarını kopyala
-COPY src ./src
-COPY pyproject.toml setup.py ./
-
-# 2. Şimdi bağımlılıkları kur. pip artık 'src' klasörünü bulabilir.
-RUN python3 -m pip install --no-cache-dir -e .
-
-# 3. Geliştirme sırasında anında yansıma için geri kalan her şeyi kopyala
+# === YENİ VE DAHA SAĞLAM YAPI ===
+# Önce projenin TÜM dosyalarını kopyala.
+# Bu, kardeş repolardaki (dbmodels, learner vb.) değişikliklerin de
+# Docker tarafından algılanmasını ve cache'in kırılmasını sağlar.
 COPY . .
+
+# Şimdi bağımlılıkları kur. Bu katman, kaynak kodundaki herhangi bir
+# değişiklikte yeniden çalışacaktır.
+RUN python3 -m pip install --no-cache-dir -e .
 # === YAPI SONU ===
 
 # Konteynerin giriş noktası
